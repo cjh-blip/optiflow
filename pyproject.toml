@@ -1,0 +1,34 @@
+[project]
+name = "optiflow"
+version = "0.0.1"
+description = "光枢 / OptiFlow — 光学软件统一平台"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0",
+    # DIALux 文件层搬运件（P1）的实际 import：
+    "ezdxf>=1.3",        # optiflow/adapters/dialux/dxf.py
+    "jsonschema>=4.0",   # src/validator/__init__.py
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+# xlsx.py 里的 pandas 是惰性 import 的可选通路（当前平台与测试都不走它），故不列为硬依赖
+xlsx = ["pandas>=2.2", "openpyxl>=3.1"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# 壳的页面必须随包走：打包时漏了它，用户打开就是一个 FileNotFoundError
+optiflow = ["web/*.html"]
+
+[tool.pytest.ini_options]
+# "src"：平台包 optiflow（与 P0 一致）
+# "." ：被搬测试的 import 闭包（src/core、src/planner、src/validator、src/executor、src/tasks）
+#       保持 dialux-compiler 原包路径，见 PROGRESS.md / BLOCKED.md B-2
+pythonpath = ["src", "."]
+testpaths = ["tests"]

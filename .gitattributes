@@ -1,0 +1,9 @@
+# 行尾策略。
+#
+# 本机 core.autocrlf=true：Git 会把检出的文本改成 CRLF。这对 STF 判卷基准是致命的——
+# 它**按字节比对**（tests/test_stf_golden_baseline.py），CRLF 会让干净 clone 直接假红。
+# 已实测：CRLF 下基准 2506 字节 vs 生成物 2384 字节，比对失败。
+# 所以这些类型强制 LF，与仓库里存的内容保持一致。
+
+*.stf text eol=lf
+*.ps1 text eol=lf

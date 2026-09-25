@@ -1,0 +1,39 @@
+{
+  "schema_version": "0.1",
+  "project": {
+    "name": "mini-2rooms",
+    "source": { "dwg": "tests/fixtures/mini.dxf" },
+    "units": "m"
+  },
+  "storeys": [
+    {
+      "level": 1,
+      "spaces": [
+        {
+          "id": "R1",
+          "name": "\u5f00\u653e\u529e\u516c\u533a",
+          "polygon": [[0, 0], [5, 0], [5, 4, 0], [0, 4]],
+          "ceil_h": 2.8,
+          "luminaires": [],
+          "furniture": [
+            { "id": "F1", "polygon": [[1, 1], [2, 1], [2, 2], [1, 2], [1, 1]], "area_m2": 1.0 }
+          ]
+        },
+        {
+          "id": "R2",
+          "name": "\u4f1a\u8bae\u5ba4",
+          "polygon": [[6, 0], [10.1234, 0], [10.1234, 3.5], [6, 3.5], [6, 0]],
+          "ceil_h": 3.05,
+          "luminaires": []
+        },
+        {
+          "id": "F1",
+          "name": "\u5bb6\u5177_F1",
+          "polygon": [[1, 1], [2, 1], [2, 2], [1, 2], [1, 1]],
+          "luminaires": []
+        }
+      ]
+    }
+  ],
+  "_meta": { "rooms": 2, "furniture": 1, "luminaires": 0, "rooms_closed": 1, "dxf_units": "mm" }
+}
