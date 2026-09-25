@@ -1,0 +1,17 @@
+# NOTE: keep this file ASCII-only -- pip decodes it with the OS locale codec
+# (GBK on this machine) and fails on non-ASCII bytes. Chinese notes live in
+# pyproject.toml / PROGRESS.md instead.
+
+# platform core
+pydantic>=2.0
+
+# DIALux file-layer ported code (P1)
+ezdxf>=1.3         # optiflow/adapters/dialux/dxf.py
+jsonschema>=4.0    # src/validator/__init__.py
+
+# tests
+pytest>=8.0
+
+# optional: xlsx.py lazy-imports pandas (no caller yet)
+# pandas>=2.2
+# openpyxl>=3.1

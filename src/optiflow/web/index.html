@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>光枢 / OptiFlow</title>
+<style>
+:root { color-scheme: light dark; --fg:#1a1a1a; --bg:#f6f7f9; --card:#fff;
+        --line:#e3e6ea; --accent:#2f6fed; --ok:#1a7f4b; --bad:#c0392b; --mute:#6b7280; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg:#e8eaed; --bg:#15171a; --card:#1e2126; --line:#2c3036; --mute:#9aa1ac; }
+}
+* { box-sizing: border-box; }
+body { margin:0; padding:28px 18px 60px; background:var(--bg); color:var(--fg);
+       font:15px/1.65 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+main { max-width: 860px; margin: 0 auto; }
+h1 { font-size: 24px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 0 0 14px; }
+h3 { font-size: 14px; margin: 18px 0 8px; color: var(--mute); font-weight: 600; }
+.sub { color: var(--mute); margin: 0 0 24px; }
+.card { background: var(--card); border:1px solid var(--line); border-radius: 10px;
+        padding: 20px; margin-bottom: 18px; }
+.grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+label { display:block; font-size: 13px; color: var(--mute); }
+input { width:100%; margin-top:5px; padding:8px 10px; border:1px solid var(--line);
+        border-radius:6px; background:transparent; color:var(--fg); font-size:14px; }
+button { margin-top:16px; padding:10px 22px; border:0; border-radius:6px;
+         background:var(--accent); color:#fff; font-size:15px; cursor:pointer; }
+button:disabled { opacity:.5; cursor:default; }
+.hint { color: var(--mute); font-size:13px; margin:12px 0 0; min-height:20px; }
+table { width:100%; border-collapse: collapse; font-size:14px; }
+td { padding:6px 0; border-bottom:1px solid var(--line); }
+td.k { color: var(--mute); }
+td.v { text-align:right; font-variant-numeric: tabular-nums; }
+ul { margin:0; padding-left:20px; }
+li { margin:4px 0; }
+.pass { color: var(--ok); }
+.fail { color: var(--bad); }
+.mute { color: var(--mute); font-size:13px; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+<h1>光枢 / OptiFlow</h1>
+<p class="sub">说一个目标，平台调软件给结果。目前接上的是 DIALux 文件层（产 STF，不驱动真机）。</p>
+
+<section class="card">
+  <h2>1. 说目标</h2>
+  <div class="grid">
+    <label>房间宽度 (m)<input id="width" type="number" value="11.9" step="0.1" min="0.1"></label>
+    <label>房间进深 (m)<input id="depth" type="number" value="8.78" step="0.1" min="0.1"></label>
+    <label>灯具安装高度 (m)<input id="height" type="number" value="3.0" step="0.1" min="0.1"></label>
+    <label>目标平均照度 (lx)<input id="target" type="number" value="500" step="10" min="1"></label>
+    <label>单灯光通量 (lm)<input id="flux" type="number" value="3000" step="100" min="1"></label>
+    <label>均匀度下限 U0<input id="u0" type="number" value="0.6" step="0.05" min="0.05" max="1"></label>
+    <label>工作面高度 (m)<input id="workplane" type="number" value="0.75" step="0.05" min="0"></label>
+    <label>灯具名称<input id="fixture" type="text" value="LED 面板 600x600"></label>
+  </div>
+  <button id="go">出方案</button>
+  <p class="hint" id="hint">填好参数点「出方案」，平台会算布灯方案并生成 DIALux 能导入的 STF。</p>
+</section>
+
+<section class="card" id="resultCard" hidden>
+  <h2>2. 结果</h2>
+  <div id="summary"></div>
+  <h3>逐条校验</h3>
+  <ul id="checks"></ul>
+  <h3>可以下载的文件</h3>
+  <div id="artifacts"></div>
+  <h3>这份方案的适用边界</h3>
+  <ul id="limits"></ul>
+</section>
+
+<section class="card">
+  <h2>平台能做什么 / 做不到什么</h2>
+  <div id="caps" class="mute">加载中…</div>
+</section>
+</main>
+
+<script>
+var byId = function (id) { return document.getElementById(id); };
+var num = function (id) { return parseFloat(byId(id).value); };
+var esc = function (s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+};
+
+function buildBody() {
+  var w = num("width"), d = num("depth");
+  return {
+    pipeline: "lighting_plan",
+    task: {
+      kind: "layout",
+      spaces: [{
+        id: "room-1",
+        name: "房间",
+        geometry: {
+          kind: "room",
+          height: num("height"),
+          outline: [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: d }, { x: 0, y: d }]
+        },
+        work_plane: num("workplane"),
+        reflectance: { ceiling: 0.7, wall: 0.5, floor: 0.2 }
+      }],
+      fixtures: [],
+      constraints: [
+        { name: "illuminance_avg", target: num("target"), unit: "lx" },
+        { name: "uniformity_u0", target: num("u0"), unit: "" }
+      ],
+      extra: { flux: num("flux"), fixture_name: byId("fixture").value }
+    }
+  };
+}
+
+function metricsTable(metrics, targets) {
+  var rows = "";
+  for (var i = 0; i < metrics.length; i++) {
+    var m = metrics[i];
+    if (m.value === null) { continue; }
+    var t = (m.target === null || m.target === undefined) ? "" :
+            "  <span class='mute'>（目标 " + m.target + "）</span>";
+    rows += "<tr><td class='k'>" + esc(m.name) + "</td><td class='v'>" +
+            esc(m.value) + " " + esc(m.unit) + t + "</td></tr>";
+  }
+  return "<table>" + rows + "</table>";
+}
+
+function render(data) {
+  var planStep = null, exportStep = null, i;
+  for (i = 0; i < data.steps.length; i++) {
+    if (data.steps[i].name === "plan") { planStep = data.steps[i]; }
+    if (data.steps[i].name === "export") { exportStep = data.steps[i]; }
+  }
+  var headline = data.ok
+    ? "<p class='pass'><b>方案达标</b>：平均照度与均匀度都通过了校验。</p>"
+    : "<p class='fail'><b>方案未全过</b>：请看不通过的条目。</p>";
+  if (data.failure_detail) {
+    headline += "<p class='fail'>" + esc(data.failure_detail) + "</p>";
+  }
+  byId("summary").innerHTML = headline +
+    (planStep ? metricsTable(planStep.metrics) : "");
+
+  var checks = "";
+  for (i = 0; i < data.checks.length; i++) {
+    var c = data.checks[i];
+    checks += "<li class='" + (c.passed ? "pass" : "fail") + "'>" +
+              (c.passed ? "通过 " : "未过 ") + esc(c.name) +
+              " <span class='mute'>" + esc(c.detail) + "</span></li>";
+  }
+  byId("checks").innerHTML = checks || "<li class='mute'>没有校验项</li>";
+
+  var links = "";
+  var wanted = [["plan", "布灯方案 (JSON)"], ["stf", "DIALux 导入文件 (STF)"]];
+  for (i = 0; i < wanted.length; i++) {
+    var key = wanted[i][0];
+    var found = false, j;
+    for (j = 0; j < data.steps.length; j++) {
+      if (data.steps[j].artifacts && data.steps[j].artifacts[key]) { found = true; }
+    }
+    if (found) {
+      links += "<div><a href='/jobs/" + encodeURIComponent(data.job_id) +
+               "/artifacts/" + key + "' download>" + wanted[i][1] + "</a></div>";
+    }
+  }
+  byId("artifacts").innerHTML = links || "<div class='mute'>没有产物</div>";
+
+  var limits = "";
+  var notes = (planStep && planStep.raw && planStep.raw.assumptions) || [];
+  for (i = 0; i < notes.length; i++) {
+    limits += "<li class='mute'>" + esc(notes[i]) + "</li>";
+  }
+  var warns = (planStep && planStep.raw && planStep.raw.warnings) || [];
+  for (i = 0; i < warns.length; i++) {
+    limits += "<li class='mute'>注意：" + esc(warns[i]) + "</li>";
+  }
+  byId("limits").innerHTML = limits || "<li class='mute'>无</li>";
+  byId("resultCard").hidden = false;
+}
+
+byId("go").onclick = function () {
+  byId("go").disabled = true;
+  byId("hint").textContent = "正在算布灯方案…";
+  fetch("/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(buildBody())
+  }).then(function (response) {
+    return response.json().then(function (payload) {
+      if (!response.ok) { throw new Error(payload.error || ("HTTP " + response.status)); }
+      return payload;
+    });
+  }).then(function (payload) {
+    render(payload);
+    byId("hint").textContent = "完成，用时 " + payload.elapsed + " 秒。";
+  }).catch(function (error) {
+    byId("hint").textContent = "出错了：" + error.message;
+  }).then(function () {
+    byId("go").disabled = false;
+  });
+};
+
+fetch("/capabilities").then(function (r) { return r.json(); }).then(function (payload) {
+  var html = "";
+  for (var i = 0; i < payload.capabilities.length; i++) {
+    var cap = payload.capabilities[i];
+    html += "<p><b>" + esc(cap.name) + "</b>（通道 " + esc(cap.tags.join("/")) + "）</p><ul>";
+    for (var j = 0; j < cap.limits.length; j++) {
+      html += "<li>" + esc(cap.limits[j]) + "</li>";
+    }
+    html += "</ul>";
+  }
+  byId("caps").innerHTML = html;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "units": "cm",
+  "units_from_header": false,
+  "room_layers": ["0"],
+  "room_edge_layers": ["0"],
+  "join_tolerance_mm": 2.0,
+  "auto_close_tolerance_mm": 4.0,
+  "luminaire_blocks": ["LED", "LAMP", "灯具"],
+  "luminaire_circle_radius_range": [7.0, 8.5],
+  "luminaire_rect_wh_range_mm": [[120.0, 15.0], [200.0, 50.0]],
+  "default_ceil_h": 2.8,
+  "origin": [0.0, 0.0]
+}

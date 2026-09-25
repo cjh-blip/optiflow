@@ -1,0 +1,134 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dialux-compiler.local/ir-schema.v0.1.json",
+  "title": "DIALux Compiler IR (v0.1)",
+  "description": "Project → Storey → Space → Luminaire 中间表示契约。坐标：米制右手系，Z 向上。",
+  "type": "object",
+  "required": ["schema_version", "project", "storeys"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": { "type": "string", "pattern": "^0\\.1(\\.\\d+)?$" },
+    "project": {
+      "type": "object",
+      "required": ["name", "source", "units"],
+      "properties": {
+        "name": { "type": "string" },
+        "source": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "dwg": { "type": "string" },
+            "xlsx": { "type": "string" }
+          }
+        },
+        "units": { "type": "string", "enum": ["m", "mm", "cm", "inch"] }
+      },
+      "additionalProperties": true
+    },
+    "storeys": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Storey" }
+    },
+    "_meta": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "rooms": { "type": "integer", "minimum": 0 },
+        "luminaires": { "type": "integer", "minimum": 0 },
+        "rooms_closed": { "type": "integer", "minimum": 0 },
+        "dxf_units": { "type": "string" }
+      }
+    }
+  },
+  "definitions": {
+    "Point2": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 3 },
+    "Polygon": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Point2" },
+      "minItems": 3
+    },
+    "Luminaire": {
+      "type": "object",
+      "required": ["symbol", "x", "y", "z", "catalog_match"],
+      "properties": {
+        "symbol": { "type": "string", "minLength": 1 },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number", "description": "安装高度（米，楼面为 0，同 space.elevation 基准）。2D DWG 无高度信息，解析器一律写 0；由 src/planner/mount.py 按 space.ceil_h × mount 回填。z=0 表示尚未回填，validator 规则 7 报 LUM_MOUNT_Z_UNSET。" },
+        "catalog_match": { "type": "boolean" },
+        "kind": { "type": "string", "enum": ["point", "linear", "area", "unknown"], "description": "灯具几何类型，由解析器按 DXF 图元显式声明，下游禁止靠 symbol 前缀反推。point=点光源（筒灯/射灯，来自 CIRCLE）；linear=线性灯具/灯带（长宽比 >= 3 的 RECT）；area=面板灯（长宽比 < 3 的 RECT）；unknown=解析器判不了（如 INSERT 块引用，块名不携带几何）。" },
+        "dims": { "type": "object", "description": "实测尺寸，单位毫米，供目录选型匹配。point 给 radius_mm；linear/area 给 w_mm 与 h_mm。", "properties": { "radius_mm": { "type": "number", "exclusiveMinimum": 0 }, "w_mm": { "type": "number", "exclusiveMinimum": 0 }, "h_mm": { "type": "number", "exclusiveMinimum": 0 } }, "additionalProperties": true },
+        "mount": { "type": "string", "enum": ["recessed", "surface", "pendant", "wall", "floor", "other"] },
+        "params": { "type": "object", "additionalProperties": true },
+        "attrs": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": true
+    },
+    "Furniture": {
+      "type": "object",
+      "required": ["id", "room_id", "polygon", "bbox", "area_m2", "kind", "height_m", "rotation", "confidence"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "room_id": { "type": ["string", "null"] },
+        "polygon": { "$ref": "#/definitions/Polygon" },
+        "bbox": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+        "area_m2": { "type": "number", "exclusiveMinimum": 0 },
+        "kind": { "type": "string", "minLength": 1 },
+        "height_m": { "type": "number", "exclusiveMinimum": 0 },
+        "rotation": { "type": "number" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "source_layer": { "type": "string" },
+        "source_entity": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "Opening": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "polygon": { "$ref": "#/definitions/Polygon" },
+        "height": { "type": "number" },
+        "transmittance": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "Space": {
+      "type": "object",
+      "required": ["id", "polygon", "luminaires"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "polygon": { "$ref": "#/definitions/Polygon" },
+        "luminaires": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Luminaire" }
+        },
+        "furniture": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Furniture" }
+        },
+        "ceil_h": { "type": "number", "exclusiveMinimum": 0 },
+        "elevation": { "type": "number" },
+        "floor_reflect": { "type": "number", "minimum": 0, "maximum": 1 },
+        "wall_reflect": { "type": "number", "minimum": 0, "maximum": 1 },
+        "ceil_reflect": { "type": "number", "minimum": 0, "maximum": 1 },
+        "openings": { "type": "array", "items": { "$ref": "#/definitions/Opening" } }
+      },
+      "additionalProperties": true
+    },
+    "Storey": {
+      "type": "object",
+      "required": ["level", "spaces"],
+      "properties": {
+        "level": { "type": "integer" },
+        "elevation": { "type": "number" },
+        "name": { "type": "string" },
+        "spaces": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Space" }
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}
