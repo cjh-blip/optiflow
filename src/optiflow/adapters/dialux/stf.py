@@ -400,7 +400,7 @@ def _room_lines(key: str, space: Dict[str, Any], ring: Ring, height: float) -> L
 # ---------- 主逻辑 ----------
 
 def _validate_rooms(ir: Dict[str, Any], prepared: Prepared) -> List[Dict[str, Any]]:
-    """对「即将导出的房间几何」复用 src.validator.validate_ir，不自己重写规则。
+    """对「即将导出的房间几何」复用 optiflow.validator.validate_ir，不自己重写规则。
 
     两个刻意的取舍：
     1. 校验对象是**归一化后**的环（已补闭合 / 去零长边 / 解析好 ceil_h），不是原始 space：
@@ -413,7 +413,7 @@ def _validate_rooms(ir: Dict[str, Any], prepared: Prepared) -> List[Dict[str, An
     仍然跑的是 jsonschema 全量 + validator 的几何规则（规则 1/2），所以缺 `id` 之类的
     schema 违规也会被拦 —— 「IR schema 是宪法」，这是有意的。
     """
-    from src.validator import validate_ir  # 懒加载：不用 --validate 时不牵 jsonschema
+    from optiflow.validator import validate_ir  # 懒加载：不用 --validate 时不牵 jsonschema
 
     spaces = []
     for _key, space, ring, height in prepared:

@@ -24,7 +24,8 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 # 壳的页面必须随包走：打包时漏了它，用户打开就是一个 FileNotFoundError
-optiflow = ["web/*.html"]
+# spec/*.json：validator 的 schema（包内寻址，见 PROGRESS.md「跨包耦合收敛」）
+optiflow = ["web/*.html", "spec/*.json"]
 
 [tool.pytest.ini_options]
 # "src"：平台包 optiflow（与 P0 一致）
