@@ -212,8 +212,9 @@ STF 的判卷标准是**迁移等价性**，参照物在本仓冻结：
    实测：干净 clone `177 passed, 2 skipped`（本机全量 179）。
 2. **`.gitattributes` 强制 `*.stf` 保持 LF**：本机 `core.autocrlf=true`，CRLF 会让按字节比对的
    判卷基准在干净 clone 里假红（实测 2506B vs 2384B），已加防护并复测通过。
-3. **临时双 pythonpath**：`pyproject.toml` 同时挂 `"src"` 与 `"."`（搬运期需要），
-   待跨包耦合解开后收敛——见 `BLOCKED.md` B-2 / B-5。
+3. **双 pythonpath 将长期保留**：`pyproject.toml` 同时挂 `"src"` 与 `"."`。被搬测试的
+   import 闭包（executor/uia 等）被「不可改的断言」钉死在 `src/` 顶层，无法收敛
+   （见 `BLOCKED.md` B-2）；主链路自身的自包含不受影响（有守卫测试）。
 4. **`requirements.txt` 必须纯 ASCII**：pip 按系统 locale（本机 GBK）解码它，中文注释会导致安装中断。
 5. **取消的粒度是「步」**：流水线能在步与步之间停下，停不下正在跑的那一步
    （那要各适配器自己实现 `cancel`）。API 与工具的描述里写的都是这个粒度。
@@ -222,9 +223,10 @@ STF 的判卷标准是**迁移等价性**，参照物在本仓冻结：
    擅自下载约 150 MB 属于「装依赖」，按规矩停下记进 `BLOCKED.md`。
    已做的是：JS 过 `node --check`、HTML 标签配对、页面里的 `fetch` 目标与真实路由逐一对照，
    以及 `scripts/shell_journey.py` 用 HTTP 把同一链路完整跑通。
-8. **`optiflow.adapters.dialux.stf` 的 `--validate` 仍依赖搬运件 `src.validator`**（惰性 import，
-   只在 `--validate` 时触发）。主链路已完全自包含（有测试守着），这条是 B-2 剩下的一小截。
-7. **`Dispatcher` 本身不做消歧**：它只按 `kind` 取注册表里**第一个**声明它的适配器。
+8. **`--validate` 已自包含**（2026-09-25）：validator 已迁入 `optiflow/validator`，schema 随包
+   （`src/optiflow/spec/`）。`grep "from src\." src/optiflow/` 为空——主链路与校验路径均不依赖
+   搬运件闭包（有守卫测试，见 `BLOCKED.md` B-10）。
+9. **`Dispatcher` 本身不做消歧**：它只按 `kind` 取注册表里**第一个**声明它的适配器。
    `LumenPlannerAdapter` 与 `DialuxAdapter` 都声明 `kind="layout"`（处理同一类任务、深度不同），
    所以直接用它会有「换一下注册顺序就换个通道」的坑（实测踩过）。
    **要跑多步流水线请走 `Orchestrator`**：它按 `kind + tags` 选唯一的适配器，选不唯一就报错。

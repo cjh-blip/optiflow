@@ -197,21 +197,14 @@ P5 的验收标准是「非技术用户能独立完成一次任务」，最硬�
 
 **待裁决**：允许我 `npx playwright install chromium`（约 150 MB）补一条真浏览器端到端测试吗？
 
-## B-10 B-2 还剩下最后一小截：`--validate` 路径仍依赖搬运件
+## B-10 B-2 还剩下最后一小截：`--validate` 路径仍依赖搬运件 → ✅ 已收敛（2026-09-25）
 
-本轮把适配器对 `src.planner.core` 的依赖还掉了（提成 `optiflow/geometry.py`），
-并加了「只挂 `src/` 也要能跑通主链路」的守卫测试。
-
-但 `optiflow/adapters/dialux/stf.py` 里还剩一处惰性 import：
-
-```python
-    from src.validator import validate_ir  # 懒加载：不用 --validate 时不牵 jsonschema
-````
-```
-
-只在 `--validate` 时触发（`test_exporter_stf.py` 有 5 条 CLI 用例走它，靠 conftest 的 PYTHONPATH 兜住）。
-彻底断链要把 validator（320 行 + `spec/ir.schema.json` 依赖）也搬进 optiflow，
-那会动到「被判卷的搬运件」，**待裁决**：现在搬，还是维持惰性不动？
+- validator 自搬运件迁入 `src/optiflow/validator/`（320 行）；唯一差异 = `load_schema` 改为包内寻址（不再依赖 `src.core.env`）。
+- schema 随包：`src/optiflow/spec/ir.schema.json`（package-data 已加 `spec/*.json`）。
+- `stf.py` 惰性 import 改 `src.validator` → `optiflow.validator`（2 行：import + docstring）；主链路（`write_stf`）一字未动。
+- 验证：全量 **315 passed / 2 skipped**；新增 `tests/test_validator_migration.py`（6 条）——新旧等价 ×3、自包含 ×2、schema 同步 ×1；冻结基准守护 6 条继续绿。
+- 净效果：`grep "from src\." src/optiflow/` 为空 —— **optiflow 主链路完全自包含**。
+- 备注：`src/validator` 保留（`planner` / `test_validator` 仍用）；「schema 两份」写了显式同步测试，将来废弃仓库根那份时一并删。
 
 ## B-11 P1② / P3 / P4 的状态（明确记录，非新问题）
 

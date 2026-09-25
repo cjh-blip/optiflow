@@ -487,7 +487,43 @@ node --check 退出码: 0   JS 语法：通过
 这条静态校验不是走过场：它当场抓出过一个真错（我在页面 JS 里误留了一个裸反引号，
 那正是此前几轮反复踩的同一类转义坑）。
 
+---
 
+# 跨包耦合收敛（本轮，2026-09-25）
 
+目标：把「optiflow 主链路依赖搬运件 `src.*`」的最后一处还掉——`--validate` 的惰性 import（BLOCKED.md B-10）。
 
+## 交付
 
+| 文件 | 内容 |
+|---|---|
+| `src/optiflow/validator/__init__.py` | 自 `src/validator` 迁入（320 行）；唯一差异：`load_schema` 改为包内寻址，不再依赖 `src.core.env` |
+| `src/optiflow/spec/ir.schema.json` | schema 随包（包内寻址的目标） |
+| `src/optiflow/adapters/dialux/stf.py` | `_validate_rooms` 惰性 import：`src.validator` → `optiflow.validator`（2 行：import + docstring） |
+| `pyproject.toml` | package-data 加 `spec/*.json` |
+| `tests/test_validator_migration.py` (6) | 等价性 ×3（mini / mvp3 / 违规 IR）+ 自包含 ×2 + schema 同步 ×1 |
+
+测试：**315 passed, 2 skipped**（基线 309 passed + 2 skipped；净增 6 条）。
+
+## 关键设计决定
+
+1. **只动 validate 路径，主链路一字未动**：`write_stf` 相关代码零改动，冻结基准守护 6 条继续绿。
+2. **等价性用「新旧 validator 同 IR 逐条比对」钉住**（与 workbench 全字节 cmp 同款逻辑）：三份输入（mini / mvp3 / 故意违规），输出完全一致。
+3. **自包含守卫用子进程 + cwd=临时目录 + PYTHONPATH 只挂 `src/`**（与 P5 的 geometry 守卫同款）：仓库根不可能被隐式加进 sys.path。
+4. **「schema 两份」写成显式同步测试**：包内 `src/optiflow/spec/` vs 仓库根 `spec/`，任何一边漂移先红；将来废弃仓库根那份时一并删。
+5. **`src/validator` 保留不动**：闭包（`test_validator` / `planner`）仍在用，符合 B-2 的既有布局。
+
+## 行为验证（实测）
+
+```
+$ python -m pytest -q
+315 passed, 2 skipped in 30.39s    （基线 309+2，新增 6 条）
+
+$ grep -rn "from src\.|import src\." src/optiflow/
+（空 —— optiflow 主链路完全自包含）
+```
+
+## 剩余缺口
+
+- **B-9 真浏览器验证**：未做。Mac 侧本机已有 `ms-playwright/chromium-1228` 缓存（无需再下载 150MB），下一轮候选。
+- B-5 双 pythonpath 保留（executor/uia 闭包被断言钉死，见 README「已知边界」3）。
