@@ -14,13 +14,13 @@ SOFTWARE_NAMES = ("dialux", "zemax", "creo", "opticstudio", "evo")
 def _room_task() -> TaskSpec:
     outline = [
         Point(x=0.0, y=0.0),
-        Point(x=11.9, y=0.0),
-        Point(x=11.9, y=8.78),
-        Point(x=0.0, y=8.78),
+        Point(x=9.57, y=0.0),
+        Point(x=9.57, y=12.97),
+        Point(x=0.0, y=12.97),
     ]
     room = Space(
-        id="room-208",
-        name="208 会议室",
+        id="room-1",
+        name="会议室",
         geometry=Geometry(kind="room", outline=outline, height=3.0),
         work_plane=0.75,
         reflectance={"ceiling": 0.7},
@@ -51,7 +51,7 @@ def test_extra_escape_hatch_is_preserved() -> None:
 
 def test_space_area_is_computed_from_outline() -> None:
     room = _room_task().spaces[0]
-    assert room.area == pytest.approx(11.9 * 8.78, rel=1e-9)
+    assert room.area == pytest.approx(9.57 * 12.97, rel=1e-9)
 
 
 def test_target_lookup() -> None:

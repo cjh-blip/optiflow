@@ -22,16 +22,16 @@ from .registry import AdapterRegistry
 
 
 def build_meeting_room_task() -> TaskSpec:
-    """208 会议室量级的一个任务：11.9m × 8.78m，目标平均照度 500lx。"""
+    """样例会议室量级的一个任务：9.57m × 12.97m，目标平均照度 500lx。"""
     outline = [
         Point(x=0.0, y=0.0),
-        Point(x=11.9, y=0.0),
-        Point(x=11.9, y=8.78),
-        Point(x=0.0, y=8.78),
+        Point(x=9.57, y=0.0),
+        Point(x=9.57, y=12.97),
+        Point(x=0.0, y=12.97),
     ]
     room = Space(
-        id="room-208",
-        name="208 会议室",
+        id="room-1",
+        name="会议室",
         geometry=Geometry(kind="room", outline=outline, height=3.0),
         work_plane=0.75,
         reflectance={"ceiling": 0.7, "wall": 0.5, "floor": 0.2},

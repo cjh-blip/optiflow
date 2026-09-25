@@ -65,8 +65,8 @@ def test_shell_journey_in_real_browser(shell_env) -> None:
     try:
         # 表单就位（壳的静态结构）
         assert page.locator("#go").is_visible()
-        assert page.input_value("#width") == "11.9"
-        assert page.input_value("#depth") == "8.78"
+        assert page.input_value("#width") == "9.57"
+        assert page.input_value("#depth") == "12.97"
         # capabilities 的异步加载也走通（页面第二个 fetch 路径）
         page.wait_for_function(
             "document.getElementById('caps').textContent.indexOf('加载中') === -1"

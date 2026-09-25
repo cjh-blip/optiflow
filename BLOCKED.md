@@ -87,7 +87,7 @@ $ cmp /d/dev/dialux-compiler/build/mvp3_lums.stf <新仓产物>
 ```
 $ cd /d/dev/dialux-compiler && git status --porcelain
  M KANBAN.md
-?? "208会议室_4m_含家具_灯具优化_照度计算.evo"
+?? "<项目>_4m_含家具_灯具优化_照度计算.evo"
 ?? docs/plan-from-scratch-modeling.md
 ?? "对话聊天日志_20260908.txt"
 ```

@@ -24,12 +24,12 @@ from optiflow.project import Project
 from optiflow.registry import AdapterRegistry
 
 FLUX = 3000.0
-OUTLINE = [Point(x=0, y=0), Point(x=11.9, y=0), Point(x=11.9, y=8.78), Point(x=0, y=8.78)]
+OUTLINE = [Point(x=0, y=0), Point(x=9.57, y=0), Point(x=9.57, y=12.97), Point(x=0, y=12.97)]
 
 
-def _room(space_id: str = "room-208", outline=None, height: float = 3.0) -> Space:
+def _room(space_id: str = "room-1", outline=None, height: float = 3.0) -> Space:
     return Space(
-        id=space_id, name="208 会议室",
+        id=space_id, name="会议室",
         geometry=Geometry(kind="room",
                           outline=outline if outline is not None else OUTLINE,
                           height=height),

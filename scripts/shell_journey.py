@@ -24,8 +24,8 @@ BODY = {
         "spaces": [{
             "id": "room-1", "name": "房间",
             "geometry": {"kind": "room", "height": 3.0, "outline": [
-                {"x": 0, "y": 0}, {"x": 11.9, "y": 0},
-                {"x": 11.9, "y": 8.78}, {"x": 0, "y": 8.78}]},
+                {"x": 0, "y": 0}, {"x": 9.57, "y": 0},
+                {"x": 9.57, "y": 12.97}, {"x": 0, "y": 12.97}]},
             "work_plane": 0.75,
             "reflectance": {"ceiling": 0.7, "wall": 0.5, "floor": 0.2},
         }],

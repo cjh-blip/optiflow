@@ -41,7 +41,7 @@ from optiflow.algo.uniformity import (
     uniformity_report,
 )
 
-ROOM = [(0.0, 0.0), (11.9, 0.0), (11.9, 8.78), (0.0, 8.78)]
+ROOM = [(0.0, 0.0), (9.57, 0.0), (9.57, 12.97), (0.0, 12.97)]
 FLUX = 3000.0
 MOUNT = 3.0
 WORK_PLANE = 0.75
@@ -53,9 +53,9 @@ HM = MOUNT - WORK_PLANE  # 2.25
 
 def test_room_index_matches_closed_form():
     """K = (L·W)/(Hm·(L+W))，可手算。"""
-    k = room_index(11.9, 8.78, MOUNT, WORK_PLANE)
-    assert k == pytest.approx(11.9 * 8.78 / (HM * (11.9 + 8.78)))
-    assert k == pytest.approx(2.2455, abs=1e-4)
+    k = room_index(9.57, 12.97, MOUNT, WORK_PLANE)
+    assert k == pytest.approx(9.57 * 12.97 / (HM * (9.57 + 12.97)))
+    assert k == pytest.approx(2.4475, abs=1e-4)
 
 
 def test_room_index_rejects_impossible_geometry():
@@ -108,11 +108,11 @@ def test_uf_accepts_caller_supplied_table():
 
 def test_fixture_count_ceils_so_the_target_is_actually_met():
     """向上取整：宁可多一盏，也不能算出一个达不到目标的数。"""
-    area = 11.9 * 8.78
-    uf = uf_lookup(room_index(11.9, 8.78, MOUNT, WORK_PLANE), 0.7, 0.5)
+    area = 9.57 * 12.97
+    uf = uf_lookup(room_index(9.57, 12.97, MOUNT, WORK_PLANE), 0.7, 0.5)
     n = fixture_count(500.0, area, FLUX, uf, DEFAULT_MAINTENANCE_FACTOR)
     raw = 500.0 * area / (FLUX * uf * DEFAULT_MAINTENANCE_FACTOR)
-    assert n == math.ceil(raw) == 31
+    assert n == math.ceil(raw) == 36
     achieved = average_illuminance(n, FLUX, uf, area, DEFAULT_MAINTENANCE_FACTOR)
     assert achieved >= 500.0
     assert average_illuminance(n - 1, FLUX, uf, area, DEFAULT_MAINTENANCE_FACTOR) < 500.0
@@ -246,8 +246,8 @@ def test_sampling_grid_respects_margin_and_room():
     inset = sampling_grid(ROOM, spacing=0.25, margin=0.5)
     assert len(inset) < len(full)
     for x, y in inset:
-        assert 0.5 - 1e-9 <= x <= 11.9 - 0.5 + 1e-9
-        assert 0.5 - 1e-9 <= y <= 8.78 - 0.5 + 1e-9
+        assert 0.5 - 1e-9 <= x <= 9.57 - 0.5 + 1e-9
+        assert 0.5 - 1e-9 <= y <= 12.97 - 0.5 + 1e-9
         assert distance_to_boundary(x, y, ROOM) >= 0.5 - 1e-9
 
 
@@ -259,7 +259,7 @@ def test_sampling_grid_rejects_bad_input():
 
 
 def test_distance_to_boundary_handles_inside_and_outside():
-    assert distance_to_boundary(5.95, 4.39, ROOM) == pytest.approx(min(5.95, 8.78 - 4.39))
+    assert distance_to_boundary(4.785, 6.485, ROOM) == pytest.approx(min(4.785, 12.97 - 6.485))
     assert distance_to_boundary(-1.0, 4.0, ROOM) == pytest.approx(1.0)
 
 
@@ -283,12 +283,12 @@ def test_uniformity_report_refuses_empty_or_dark():
 
 def test_uniformity_is_symmetric_for_a_centred_fixture():
     """单灯居中时，工作面四角照度必须相等（对称性检查，能抓出坐标/索引错位）。"""
-    f = PhotoFixture(x=5.95, y=4.39, height=HM, distribution=Lambertian(flux=FLUX))
+    f = PhotoFixture(x=4.785, y=6.485, height=HM, distribution=Lambertian(flux=FLUX))
     corners = [
         point_illuminance(1.0, 1.0, [f]),
-        point_illuminance(10.9, 1.0, [f]),
-        point_illuminance(10.9, 7.78, [f]),
-        point_illuminance(1.0, 7.78, [f]),
+        point_illuminance(8.57, 1.0, [f]),
+        point_illuminance(8.57, 11.97, [f]),
+        point_illuminance(1.0, 11.97, [f]),
     ]
     assert max(corners) == pytest.approx(min(corners), rel=1e-9)
 
@@ -297,18 +297,18 @@ def test_uniformity_is_symmetric_for_a_centred_fixture():
 
 
 def test_grid_places_exactly_count_fixtures_inside_the_room():
-    layout = plan_grid(31, 11.9, 8.78, height=HM)
+    layout = plan_grid(31, 9.57, 12.97, height=HM)
     assert layout.count == 31
     assert layout.nx * layout.ny >= 31
     for x, y in layout.positions:
-        assert 0.0 <= x <= 11.9 and 0.0 <= y <= 8.78
+        assert 0.0 <= x <= 9.57 and 0.0 <= y <= 12.97
 
 
 def test_grid_prefers_square_spacing_over_minimal_waste():
-    """31 盏灯若选 8x4 会让 U0 掉到 0.41；选 7x5 才是对的。钉住这个取舍。"""
-    layout = plan_grid(31, 11.9, 8.78, height=HM)
-    assert layout.nx == 7 and layout.ny == 5
-    # 8x4 会给出 1.49 x 2.20 的长条间距（skew 1.48），7x5 是 1.70 x 1.76。
+    """31 盏灯要选接近方形的网格；长条组合会让 U0 掉。钉住这个取舍。"""
+    layout = plan_grid(31, 9.57, 12.97, height=HM)
+    assert layout.nx == 5 and layout.ny == 7
+    # 长条组合会给出明显偏斜的间距（skew > 1.4），方形组合接近 1.0。
     # 钉住「两个方向不许差太多」，不钉死相等——短排铺满整幅时行距会略有出入。
     ratio = max(layout.spacing_x, layout.spacing_y) / min(layout.spacing_x, layout.spacing_y)
     assert ratio < 1.3, f"间距太不方：{layout.spacing_x:.2f} x {layout.spacing_y:.2f}"
@@ -323,8 +323,8 @@ def test_default_edge_factor_leaves_half_a_cell_at_the_wall():
 
 def test_smaller_edge_factor_pushes_edge_fixtures_towards_the_wall():
     """这是改善房间角落照度的旋钮，必须真的起作用。"""
-    wide = plan_grid(31, 11.9, 8.78, height=HM, edge_factor=0.5)
-    tight = plan_grid(31, 11.9, 8.78, height=HM, edge_factor=0.25)
+    wide = plan_grid(31, 9.57, 12.97, height=HM, edge_factor=0.5)
+    tight = plan_grid(31, 9.57, 12.97, height=HM, edge_factor=0.25)
     assert min(p[0] for p in tight.positions) < min(p[0] for p in wide.positions)
     assert min(p[1] for p in tight.positions) < min(p[1] for p in wide.positions)
     # 代价也要钉住：边缘灯推向墙 = 房间内部的可用跨度变大 = 内部灯距【变大】。
@@ -358,20 +358,22 @@ def test_every_row_is_spread_across_the_full_width():
     """每一排（含没排满的短排）都要铺满整幅宽度——边角有灯，U0 才立得住。
 
     反例（曾实现过）：让短排从已有列里居中取，保持列对齐。看着规整，
-    实测 31 盏灯 7 列 5 排时最后一排只放中间 3 盏、房间最后两角无灯，
+    实测 31 盏灯时最后一排只放中间 3 盏、房间最后两角无灯，
     U0 从 0.52 掉到 0.23。边角覆盖远比列对齐重要。
     """
-    layout = plan_grid(31, 11.9, 8.78, height=HM)
+    layout = plan_grid(31, 9.57, 12.97, height=HM)
     rows: dict = {}
     for x, y in layout.positions:
         rows.setdefault(round(y, 6), []).append(x)
-    assert len(rows) == layout.ny == 5
+    assert len(rows) == layout.ny == 7
+    # 短排按 cell 间距居中（cell = W/(nx-1)），范围 = (k-1)×cell；该比例随 nx 变化
+    # （nx=7 时 83%、nx=5 时 75%），所以阈值取 0.7——钉的是「不许挤在中间」，不是具体比例。
     for xs in rows.values():
-        assert max(xs) - min(xs) >= 0.8 * 11.9, "每一排都要铺开，不能挤在中间"
+        assert max(xs) - min(xs) >= 0.7 * 9.57, "每一排都要铺开，不能挤在中间"
     allx = [p[0] for p in layout.positions]
-    half_cell = 11.9 / layout.nx / 2
+    half_cell = 9.57 / layout.nx / 2
     assert min(allx) == pytest.approx(half_cell, rel=1e-6)
-    assert max(allx) == pytest.approx(11.9 - half_cell, rel=1e-6)
+    assert max(allx) == pytest.approx(9.57 - half_cell, rel=1e-6)
 
 
 def test_grid_rejects_bad_input():

@@ -22,10 +22,10 @@ from optiflow.registry import AdapterRegistry
 
 
 def _task() -> TaskSpec:
-    outline = [Point(x=0.0, y=0.0), Point(x=11.9, y=0.0), Point(x=11.9, y=8.78), Point(x=0.0, y=8.78)]
+    outline = [Point(x=0.0, y=0.0), Point(x=9.57, y=0.0), Point(x=9.57, y=12.97), Point(x=0.0, y=12.97)]
     room = Space(
-        id="room-208",
-        name="208 会议室",
+        id="room-1",
+        name="会议室",
         geometry=Geometry(kind="room", outline=outline, height=3.0),
         work_plane=0.75,
     )
@@ -126,7 +126,7 @@ def test_result_carries_metrics_and_stf_artifact(adapter: DialuxAdapter) -> None
     assert {"rooms", "fixtures", "area", "stf_bytes"} <= names
     assert result.metric("rooms") == 1.0
     assert result.metric("fixtures") == 1.0
-    assert result.metric("area") == pytest.approx(round(11.9 * 8.78, 2))
+    assert result.metric("area") == pytest.approx(round(9.57 * 12.97, 2))
     stf = Path(result.artifacts["stf"])
     assert stf.exists() and stf.suffix == ".stf"
     assert result.metric("stf_bytes") == float(stf.stat().st_size)
