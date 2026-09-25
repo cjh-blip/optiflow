@@ -10,28 +10,32 @@
 用法：
     python scripts/freeze_stf_baseline.py            # 只核对（默认，dry-run）
     python scripts/freeze_stf_baseline.py --write    # 真的重写基准文件
+
+源仓路径：环境变量 OPTIFLOW_SOURCE_REPO 覆盖，默认 D:/dev/dialux-compiler（Windows 开发机）。
 """
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE_REPO = Path(r"D:/dev/dialux-compiler")
+SOURCE_REPO = Path(os.environ.get("OPTIFLOW_SOURCE_REPO", r"D:/dev/dialux-compiler"))
 IR_FIXTURE = ROOT / "tests" / "fixtures" / "mvp3_ir.json"
 BASELINE = ROOT / "tests" / "fixtures" / "mvp3_lums_baseline.stf"
 PROJECT_NAME = "mvp3_lums"
-BASELINE_DATE = "2026-09-13"
+BASELINE_DATE = "2026-09-26"
 
 
 def provenance() -> list:
-    """源仓出处：HEAD、stf.py blob、stf.py 最后一次改动。"""
+    """源仓出处：HEAD、stf.py blob、stf.py 最后一次改动。无 git 信息时容错标注。"""
     def git(*args: str) -> str:
         r = subprocess.run(["git", *args], cwd=str(SOURCE_REPO), capture_output=True,
                            text=True, encoding="utf-8", errors="replace")
-        return r.stdout.strip()
+        out = r.stdout.strip()
+        return out if r.returncode == 0 and out else "（不可用）"
 
     return [
         "HEAD            : " + git("rev-parse", "HEAD"),

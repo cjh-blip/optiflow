@@ -185,7 +185,7 @@ def _doc_units(doc, cfg: ParseConfig) -> str:
 
     注意：真实 DXF 的 $INSUNITS 不一定代表实际绘图单位。若用户通过 --config 指定 units，
     我们强制信任 cfg.units（cfg.units_from_header=False 即完全由 cfg 决定）。
-    当 cfg.units_from_header=True 但实际 bbox 与「典型房间尺寸（SOP 11.9m×8.78m）量级」不符时，
+    当 cfg.units_from_header=True 但实际 bbox 与「典型房间尺寸量级」不符时，
     本函数给出启发式告警，让用户通过 --config 指定单位。
     """
     if cfg.units_from_header:

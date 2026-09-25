@@ -55,7 +55,7 @@
 
 ### 反向验证 ✅
 
-`python scripts/verify_stf_parity.py --break-x` → B2 **FAIL / 退出码 1**（首个差异行 `Point2=11.9 8.78 0` vs `Point2=11.901 8.78 0`）；
+`python scripts/verify_stf_parity.py --break-x` → B2 **FAIL / 退出码 1**（首个差异行是 X 坐标的 1e-3 米级差异）；
 还原后 → **PASS / 退出码 0**。
 
 ### 端到端 ✅

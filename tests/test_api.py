@@ -30,10 +30,10 @@ from optiflow.shell import PAGE_PATH, content_type_for, page_html
 TASK = {
     "kind": "layout",
     "spaces": [{
-        "id": "room-208", "name": "208 会议室",
+        "id": "room-1", "name": "会议室",
         "geometry": {"kind": "room", "height": 3.0, "outline": [
-            {"x": 0, "y": 0}, {"x": 11.9, "y": 0},
-            {"x": 11.9, "y": 8.78}, {"x": 0, "y": 8.78}]},
+            {"x": 0, "y": 0}, {"x": 9.57, "y": 0},
+            {"x": 9.57, "y": 12.97}, {"x": 0, "y": 12.97}]},
         "work_plane": 0.75,
         "reflectance": {"ceiling": 0.7, "wall": 0.5, "floor": 0.2},
     }],
@@ -385,7 +385,7 @@ def test_mcp_capabilities_tool_surfaces_limits(service: PlatformService) -> None
 
 def test_mcp_plan_lighting_tool_end_to_end(service: PlatformService) -> None:
     outcome = _tool(service, "optiflow_plan_lighting",
-                    {"width": 11.9, "depth": 8.78, "flux": 3000.0,
+                    {"width": 9.57, "depth": 12.97, "flux": 3000.0,
                      "target_lux": 500.0})
     assert outcome["isError"] is False
     payload = outcome["payload"]

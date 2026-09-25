@@ -2,7 +2,7 @@
 
 引擎是算法层对外的门面，这里钉三件事：
 
-1. 端到端能给出【达标】的方案（208 会议室：500 lx 目标下 U0 也要过 0.60）；
+1. 端到端能给出【达标】的方案（会议室：500 lx 目标下 U0 也要过 0.60）；
 2. 求解器真的会为了 U0 去调排布，而不是只会加灯；
 3. 拿不到硬信息（光通量）时宁可报错，不许猜一个数把方案变成编造。
 """
@@ -16,7 +16,7 @@ from optiflow.ir import Fixture, Geometry, Metric, Point, Space, TaskSpec
 FLUX = 3000.0
 
 
-def _room(space_id: str = "room-208", w: float = 11.9, h: float = 8.78,
+def _room(space_id: str = "room-1", w: float = 9.57, h: float = 12.97,
           height: float = 3.0, reflectance=None) -> Space:
     outline = [Point(x=0, y=0), Point(x=w, y=0), Point(x=w, y=h), Point(x=0, y=h)]
     return Space(
@@ -41,7 +41,7 @@ def _task(spaces=None, target: float = 500.0, flux: float = FLUX, extra=None) ->
 
 
 def test_meeting_room_plan_is_compliant():
-    """208 会议室：目标 500 lx，求解器要同时把平均照度和均匀度都做达标。"""
+    """会议室：目标 500 lx，求解器要同时把平均照度和均匀度都做达标。"""
     plan = plan_layout(_task())
     assert plan.meets_illuminance
     assert plan.meets_uniformity
@@ -50,7 +50,7 @@ def test_meeting_room_plan_is_compliant():
     assert plan.metric("uniformity_u0") >= DEFAULT_U0_REQUIRED
     assert plan.metric("fixture_count") > 0
     # metric 里的面积保留两位小数（给人看的数）
-    assert plan.metric("area") == pytest.approx(11.9 * 8.78, abs=0.01)
+    assert plan.metric("area") == pytest.approx(9.57 * 12.97, abs=0.01)
 
 
 def test_plan_is_deterministic():
@@ -75,8 +75,8 @@ def test_fixtures_and_metrics_agree():
 def test_fixtures_inside_the_room():
     plan = plan_layout(_task())
     for f in plan.fixtures:
-        assert 0.0 <= f.position.x <= 11.9
-        assert 0.0 <= f.position.y <= 8.78
+        assert 0.0 <= f.position.x <= 9.57
+        assert 0.0 <= f.position.y <= 12.97
 
 def test_solver_improves_uniformity_instead_of_only_adding_fixtures():
     """核心行为：常规排布 U0 不达标时，先把边缘灯推向墙，而不是只加灯。
@@ -145,10 +145,10 @@ def test_capability_limits_are_honest():
 
 
 def test_multi_room_plan_sums_area_and_reports_worst_uniformity():
-    plan = plan_layout(_task(spaces=[_room("A", 11.9, 8.78), _room("B", 6.0, 5.0)]))
+    plan = plan_layout(_task(spaces=[_room("A", 9.57, 12.97), _room("B", 6.0, 5.0)]))
     assert plan.metric("rooms") == 2.0
     # metric 里的面积保留两位小数（给人看的数），容差按 0.01 取
-    assert plan.metric("area") == pytest.approx(11.9 * 8.78 + 6.0 * 5.0, abs=0.01)
+    assert plan.metric("area") == pytest.approx(9.57 * 12.97 + 6.0 * 5.0, abs=0.01)
     worst = min(r.uniformity.u0 for r in plan.rooms)
     assert plan.metric("uniformity_u0") == pytest.approx(worst, abs=1e-3)
 

@@ -36,12 +36,12 @@ from optiflow.pipelines import (
 from optiflow.project import Project
 from optiflow.registry import AdapterRegistry
 
-OUTLINE = [Point(x=0, y=0), Point(x=11.9, y=0), Point(x=11.9, y=8.78), Point(x=0, y=8.78)]
+OUTLINE = [Point(x=0, y=0), Point(x=9.57, y=0), Point(x=9.57, y=12.97), Point(x=0, y=12.97)]
 
 
 def _task(u0_target=None, lux_target=500.0) -> TaskSpec:
     room = Space(
-        id="room-208", name="208 会议室",
+        id="room-1", name="会议室",
         geometry=Geometry(kind="room", outline=OUTLINE, height=3.0),
         work_plane=0.75,
         reflectance={"ceiling": 0.7, "wall": 0.5, "floor": 0.2},
