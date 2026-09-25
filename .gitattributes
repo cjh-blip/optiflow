@@ -7,3 +7,9 @@
 
 *.stf text eol=lf
 *.ps1 text eol=lf
+
+# 2026-09-25：JSON 同治理。来源：validator 迁入 optiflow 时，包内 schema（自 Windows 快照
+# 复制，CRLF）与仓库根 spec/ 均为 CRLF；而 `git am` 默认剥离 patch 行尾 CR——
+# 跨机应用后行尾不一致，会让「schema 同步」字节比对假红（同类问题的第三次出现）。
+# 统一 LF，与仓库里其他规范文件保持一致。
+*.json text eol=lf
