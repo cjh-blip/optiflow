@@ -527,3 +527,46 @@ $ grep -rn "from src\.|import src\." src/optiflow/
 
 - **B-9 真浏览器验证**：未做。Mac 侧本机已有 `ms-playwright/chromium-1228` 缓存（无需再下载 150MB），下一轮候选。
 - B-5 双 pythonpath 保留（executor/uia 闭包被断言钉死，见 README「已知边界」3）。
+
+---
+
+# 真浏览器端到端（本轮，2026-09-25）
+
+目标：把 B-9「极简壳没在真浏览器里验证过」补上——P5 验收标准「非技术用户能独立完成一次任务」的最硬证据。
+
+## 交付
+
+| 文件 | 内容 |
+|---|---|
+| `tests/test_shell_browser.py` (2) | 全旅程（表单→出方案→达标→校验全过→下载 STF→截图）+ 输入生效（改 600 → 结果含 600） |
+
+测试：315 → **317 条**，0 failed（另 2 条既有 skip）。
+
+## 环境（Mac 侧）
+
+- playwright==1.61.0（Python）——版本与缓存 chromium-1228 对齐（`playwright install --dry-run` 验证；1.62+ 要 1234+）
+- 浏览器寻址：`channel="chromium"`（走完整版 build；缓存无 headless shell，默认 launch 会找不到）
+- 缺库 / 缺浏览器时整模块 skip（干净环境不炸）
+
+## 行为验证（实测）
+
+```
+$ python -m pytest tests/test_shell_browser.py -v
+2 passed in 3.47s
+
+全量：317 passed, 2 skipped
+
+截图：build/browser_check/shell_result.png（full_page）
+  → 界面完整渲染：表单 + 「方案达标」+ 指标表（31 盏 / 508.8 lx / U0 0.693）
+    + 5 条校验全绿 + 两个下载链接 + 适用边界说明
+```
+
+## 关键设计决定
+
+1. **两条测试各司其职**：全旅程（渲染 + 下载）+ 输入生效（600 出现在结果，证明表单→计算链没断）。
+2. **launch 策略双保险**：先 `channel="chromium"`（只有完整版的环境）→ 退回默认（标准安装的环境）→ 都失败才 skip（带完整错误信息）。
+3. **截图落 build/**（gitignore 产物目录），不入库。
+
+## 剩余缺口
+
+- B-9 关闭。P1② 真机 / P3 / P4 仍待（Windows / 装机）。

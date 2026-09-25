@@ -179,23 +179,12 @@ OptiFlow 的 `pyproject.toml` 依赖仍只有 `pydantic`，`requirements.txt` �
 
 # 后续轮次新增（P2 / 编排层 / 对外接口 / 极简壳 之后）
 
-## B-9 极简壳没在真浏览器里验证过（待裁决：要不要装浏览器）
+## B-9 极简壳没在真浏览器里验证过 → ✅ 已补（2026-09-25）
 
-P5 的验收标准是「非技术用户能独立完成一次任务」，最硬的证据是真浏览器里点一遍。
-但本机没有 Playwright 浏览器（`ms-playwright` 缓存不存在），下载 chromium 约 150 MB——
-按「装依赖一律停下待裁决」的规矩，没有擅自装。
-
-已做的替代验证：
-
-- JS 过 `node --check`（退出码 0）；HTML 标签配对全部 OK；
-- 页面里的 `fetch` 目标与真实路由逐一对照（有测试）；
-- `scripts/shell_journey.py` 用 HTTP 把同一条链路完整跑通：
-  打开界面 → 出方案（31 盏 / 508.8 lx / U0 0.693）→ 5 条校验全过 → 下载 1954 字节 STF。
-
-**仍未覆盖**：浏览器里 JS 的实际运行（DOM 交互、渲染结果）。
-静态语法通过不等于逻辑对——比如把 `byId("width")` 写成 `byId("widht")` 照样能过 `node --check`。
-
-**待裁决**：允许我 `npx playwright install chromium`（约 150 MB）补一条真浏览器端到端测试吗？
+- Mac 侧补上真浏览器端到端：`tests/test_shell_browser.py`（2 条）——Playwright 打开壳 → 填表 → 出方案 → 「方案达标」+ 5 条校验全绿 → 下载 STF → 截图。
+- 环境：playwright==1.61.0 + 缓存 chromium-1228（无需下载新浏览器；`channel="chromium"` 走完整版 build）。
+- 缺库 / 缺浏览器时整模块 skip —— 干净环境不受影响。
+- 截图证据：`build/browser_check/shell_result.png`；全量 **317 passed / 2 skipped**。
 
 ## B-10 B-2 还剩下最后一小截：`--validate` 路径仍依赖搬运件 → ✅ 已收敛（2026-09-25）
 
