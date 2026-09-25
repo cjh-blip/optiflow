@@ -219,10 +219,10 @@ STF 的判卷标准是**迁移等价性**，参照物在本仓冻结：
 5. **取消的粒度是「步」**：流水线能在步与步之间停下，停不下正在跑的那一步
    （那要各适配器自己实现 `cancel`）。API 与工具的描述里写的都是这个粒度。
 6. **HTTP 接口没有鉴权**，只绑回环。别把它暴露到公网。
-7. **壳只做过静态校验，没在真浏览器里跑过**：本机没装 Playwright 浏览器，
-   擅自下载约 150 MB 属于「装依赖」，按规矩停下记进 `BLOCKED.md`。
-   已做的是：JS 过 `node --check`、HTML 标签配对、页面里的 `fetch` 目标与真实路由逐一对照，
-   以及 `scripts/shell_journey.py` 用 HTTP 把同一链路完整跑通。
+7. **壳已有真浏览器端到端**（2026-09-25）：`tests/test_shell_browser.py` 用 Playwright 在
+   真浏览器跑完整旅程（表单 → 出方案 → 校验全绿 → 下载 STF）；缺 playwright/浏览器时 skip。
+   静态校验（`node --check`、标签配对、fetch 路由对照）与 `scripts/shell_journey.py`
+   仍在，作为无浏览器环境的替代证据。
 8. **`--validate` 已自包含**（2026-09-25）：validator 已迁入 `optiflow/validator`，schema 随包
    （`src/optiflow/spec/`）。`grep "from src\." src/optiflow/` 为空——主链路与校验路径均不依赖
    搬运件闭包（有守卫测试，见 `BLOCKED.md` B-10）。
