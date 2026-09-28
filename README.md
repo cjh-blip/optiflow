@@ -14,6 +14,8 @@
 
 适配器统一契约五方法：`capabilities / submit / status / result / cancel`。
 
+![架构总览](docs/architecture.png)
+
 ## 快速开始
 
 实测环境：`D:\dev\anaconda3\python.exe`（Python 3.11.15 + pydantic 2.12）。本机 `python3` 指向 3.14，无依赖，勿用。
