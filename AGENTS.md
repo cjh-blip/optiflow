@@ -6,8 +6,8 @@
 
 ## 阶段分工
 
-- **P0 由 Hanako 执笔**（契约与文档密集期）
-- **P1 起 DSH 主力、Hanako 转辅助**（真机调试归 DSH）
+- **P0 由 AI 助手执笔**（契约与文档密集期）
+- **P1 起 DSH 主力、AI 助手转辅助**（真机调试归 DSH）
 
 ## 红线
 
@@ -47,6 +47,6 @@
 （配置在 `C:\Users\cjh\.dsh\settings.yaml` 的 `agent-default-model`）。
 
 - 执行：DSH 顶层会话直接读写代码、跑门禁、改文档；需要并行或隔离上下文时用 `subagent` / `workflow` 拆分。
-- 本仓 P0 骨架期由 Hanako 执笔，P1 起改由 DSH 主力（见「阶段分工」）。
+- 本仓 P0 骨架期由 AI 助手执笔，P1 起改由 DSH 主力（见「阶段分工」）。
 - 权限边界与体系沿革见 `docs/agent-spec.md`；本文件是协作体系的唯一真身。
 

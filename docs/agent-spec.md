@@ -26,7 +26,7 @@
 
 | 时期 | 体系 | 状态 |
 |---|---|---|
-| P0 骨架期 | Hanako 执笔（契约与文档密集期，见 AGENTS.md「阶段分工」） | 已交棒 |
+| P0 骨架期 | AI 助手执笔（契约与文档密集期，见 AGENTS.md「阶段分工」） | 已交棒 |
 | P1 起 | **DSH 桌面版顶层会话直接执行 + deepseek-v4-flash** | **现役** |
 
 沿革说明：OptiFlow 是 2026-09 新建的仓，**没有** Hermes / `claude --agent` 子员工 / cc-switch

@@ -130,7 +130,7 @@ P1 产出 `build/dialux/<job_id>.stf`，内容为完整合法 STF（`[VERSION]`/
 
 - `AGENTS.md`：定位从「P0 骨架期」改为「P0 完成、P1 文件层已通」；
   「当前状态与下一步」改为 P1 文件层完成 + 下一步真机 UI/P2；协作体系一节去掉源仓沿革。
-- `docs/agent-spec.md`：沿革表改为**本仓真实情况**（P0 Hanako 执笔 → P1 起 DSH 主力），
+- `docs/agent-spec.md`：沿革表改为**本仓真实情况**（P0 AI 助手执笔 → P1 起 DSH 主力），
   并明写「OptiFlow 没有 Hermes / claude 子员工 / cc-switch 那段历史，勿套用」。
 - `deepseek-v4-flash` 保留（用户确认对 OptiFlow 成立）。
 
