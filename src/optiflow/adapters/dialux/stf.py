@@ -340,7 +340,7 @@ def _header_lines(project_name: str, date: str, room_keys: Sequence[str]) -> Lis
 
 
 def _luminaire_lines(luminaires: Sequence[Dict[str, Any]]) -> List[str]:
-    """生成 STF 灯具行（格式已按 Revit STF-Exporter 修正；evo 14.0 仍忽略灯具段）。
+    """生成 STF 灯具行（格式已按 Revit STF-Exporter 修正；evo 导入后以占位符形式保留）。
 
     格式对照（GitHub `kmorin/STF-Exporter`，`STF Exporter/Command.cs` 的
     `writeLumenairs` + ROOM 段，约 290-309 行）：
@@ -352,15 +352,14 @@ def _luminaire_lines(luminaires: Sequence[Dict[str, Any]]) -> List[str]:
     每盏灯 3 行：``LumN=名称`` + ``LumN.Pos=坐标`` + ``LumN.Rot=旋转``（旧占位实现
     ``Lum{i}=x y z symbol`` 一行全塞是错的）。
 
-    **2026-09-06 真机验证（双重证据）：格式修正后 evo 14.0 依然 0 灯具落地。**
+    **2026-09-06 与 2026-10-05 两次真机验证（结论已更新）：**
     - 旧格式（一行塞坐标）→ 0 落地（2026-09-05 已判）
-    - 新格式（对照 STF-Exporter 三行式，28 盏）→ 导入执行了（ProjectData +24B）但
-      ``LuminaireElement=0``，灯具段仍被忽略
-    - 官方文档：STF 支持灯具位置（"specified luminaire positions"），但 **evo 的 STF
-      export 标注 "in preparation"**——evo 的 STF 导入很可能只实现了房间几何。
-      STF-Exporter（2014，针对老 DIALux）的灯具段在 evo 无效。
-    → **灯具落地继续走 computer use 通道**（ArrangementFromSpace 已通），本函数
-    保留正确格式供老 DIALux / 未来 evo 版本使用，不作为 evo 14.0 的落地出口。
+    - 新格式（对照 STF-Exporter 三行式）→ 2026-09-06 评估时按当时的读数误判为
+      「灯具段被忽略」；**2026-10-05 复验（36 盏）更正**：导入后灯具以**占位符**
+      形式完整保留（36/36），位置/朝向与 STF 原文逐位一致；在 DIALux UI 中用
+      「更换该类型的所有灯具」可批量替换为真灯（带 IES）并参与照度计算。
+    → 本函数保留正确格式：灯具随 STF 导入即以占位符就位，「算 → 导 STF → UI 换真灯」
+    是一条完整可用闭环；旧格式（Lum{i}=x y z symbol）仍然无效。
     """
     lines = []
     for i, lum in enumerate(luminaires, start=1):

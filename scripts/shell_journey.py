@@ -45,7 +45,7 @@ def main() -> int:
 
         with urlreq.urlopen(base + "/", timeout=30) as response:
             page = response.read().decode("utf-8")
-        print("1) 打开界面      -> HTTP 200,", len(page), "字节, 有表单:",
+        print("1) 打开界面      -> HTTP 200,", len(page), "字符, 有表单:",
               'id="go"' in page)
 
         request = urlreq.Request(base + "/run",
@@ -70,7 +70,7 @@ def main() -> int:
         lines = stf.splitlines()
         luminaires = sum(1 for line in lines
                          if line.startswith("Lum") and ".Pos=" in line)
-        print("4) 下载 STF      ->", len(stf), "字节, 首行", repr(lines[0]))
+        print("4) 下载 STF      ->", len(stf), "字符, 首行", repr(lines[0]))
         print("     房间段", stf.count("[ROOM."), "个, 灯具", luminaires, "盏")
         print("5) 完成：用户拿到一个 DIALux 能导入的文件。")
         return 0

@@ -4,7 +4,7 @@
 1. dispatcher 靠 capabilities() 选中它（kind="layout"），不是硬编码；
 2. submit 是异步的——立刻返回 job_id，不阻塞调用方；
 3. result 给 Metric 列表 + artifacts（真实存在的 .stf 路径），且 STF 内容可校验；
-4. 能力声明诚实：limits 写明「灯具段被忽略、落灯要 UI 通道」与「本步不驱动真机」。
+4. 能力声明诚实：limits 写明「灯具以占位符保留、UI 批量换真灯」与「本步不驱动真机」。
 """
 from __future__ import annotations
 
@@ -68,13 +68,13 @@ def test_dialux_adapter_declares_only_layout_kind(adapter: DialuxAdapter) -> Non
     assert adapter.capabilities().kinds == ["layout"]
 
 
-def test_capabilities_limits_name_the_ui_gap_and_the_no_real_machine_scope(
+def test_capabilities_limits_name_the_placeholder_flow_and_no_real_machine_scope(
         adapter: DialuxAdapter) -> None:
-    """limits 必须至少两条，且点名「灯具段被忽略/落灯要 UI 通道」与「本步不驱动真机」。"""
+    """limits 必须至少两条，且点名「占位符保留/UI 批量换真灯」与「本步不驱动真机」。"""
     limits = adapter.capabilities().limits
     assert len(limits) >= 2, limits
     joined = " ".join(limits)
-    assert "灯具段" in joined and "UI 通道" in joined, limits
+    assert "占位符" in joined and "批量替换为真灯" in joined and "UI" in joined, limits
     assert "不驱动真机" in joined, limits
 
 

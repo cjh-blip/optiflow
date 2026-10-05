@@ -1,6 +1,9 @@
 # PROGRESS — DIALux 文件层搬运（P1 第 1 步）
 
 > 断点续跑：读本文件即可接着做。每完成一项立刻更新。
+> 口径注（2026-10-05）：本文件是 2026-09 期间的连续执行记录，运行数字为各阶段实际输出；
+> 示例数据已于 2026-09 开源脱敏时替换，部分数字（如 31 盏 / 508.8 lx / 0.693）无法用现行数据复现，
+> 现行口径见 `README.md`。另：早期脚本曾将字符数打印为「字节」，对应输出行已订正为「字符」。
 
 ## 任务 0 基线（实测）
 
@@ -44,6 +47,7 @@
 - `submit` 异步：立刻返回 `job_id`，导出在后台 daemon 线程；实测 submit 耗时 **0.0 ms**。
 - `result` 返回 Metric 列表（rooms / fixtures / area / stf_bytes）+ `artifacts={"stf": <路径>}`。
 - `capabilities().limits` 三条，含要求的①②：灯具段被忽略→落灯要 UI 通道；本步不驱动真机、只产 STF。
+  （2026-10-05 更正：「灯具段被忽略」表述与实测不符——导入后灯段以占位符完整保留（36/36），可在 UI 批量换真灯并参与计算；limits 文案已同步更正。）
 - 新增 `tests/test_dialux_adapter.py`（12 条）：证明 dispatcher 按 capabilities 选中它、异步契约、产物可校验、无效任务落 FAILED 而非抛异常。
 
 ### 金标准核对（任务 2 验收二）⚠️ 部分不可达成，已如实报告
@@ -462,7 +466,7 @@ ModuleNotFoundError: No module named 'src'
 ```
 $ python scripts/shell_journey.py
 服务地址： http://127.0.0.1:29310
-1) 打开界面      -> HTTP 200, 8168 字节, 有表单: True
+1) 打开界面      -> HTTP 200, 8168 字符, 有表单: True
 2) 点「出方案」  -> ok=True, 用时 0.453s
      灯数 31 盏 / 平均照度 508.8 lx（目标 500）/ 均匀度 U0 0.693（目标 0.6）
 3) 逐条校验：
@@ -471,7 +475,7 @@ $ python scripts/shell_journey.py
      [通过] plan:产物 plan 存在
      [通过] export:产物 stf 存在
      [通过] 跨步骤:plan.fixture_count==export.fixtures
-4) 下载 STF      -> 1954 字节, 首行 '[VERSION]'
+4) 下载 STF      -> 1954 字符, 首行 '[VERSION]'
      房间段 1 个, 灯具 31 盏
 5) 完成：用户拿到一个 DIALux 能导入的文件。
 ```

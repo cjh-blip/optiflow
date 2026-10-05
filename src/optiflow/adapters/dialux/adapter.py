@@ -106,7 +106,7 @@ class DialuxAdapter:
             kinds=["layout"],
             tags=["file"],
             limits=[
-                "只产出 STF 文件：灯具段会被 DIALux 忽略（evo 免费版不认 STF 灯具），落灯必须走 UI 通道",
+                "只产出 STF 文件：灯具以占位符形式保留（真机实测 36/36），可在 DIALux UI 中批量替换为真灯并参与照度计算",
                 "本步不驱动真机：不启动 DIALux、不导入 STF、不触发出报告，导入效果未经真机验证",
                 "不产出 .evo，也不做照度计算：结果里没有照度类指标，别当作仿真结论",
             ],

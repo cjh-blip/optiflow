@@ -46,4 +46,5 @@ python scripts/freeze_stf_baseline.py            # dry-run，只核对
 python scripts/freeze_stf_baseline.py --write    # 真的重写基准（刻意动作）
 ```
 
+（2026-10-05 起：dry-run 的临时文件落系统临时目录，不再写本目录，只读检出也可安全核对。）
 换完必须把上面「源仓出处」的 hash 同步更新（脚本会打印新的）。
