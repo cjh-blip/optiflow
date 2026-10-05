@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -53,7 +55,8 @@ def main() -> int:
     for line in provenance():
         print("  " + line)
 
-    tmp = BASELINE.with_suffix(".regen.tmp")
+    # 临时文件落系统临时目录：dry-run 也会写这里，只读检出/受限环境下不再写仓库。
+    tmp = Path(tempfile.gettempdir()) / BASELINE.with_suffix(".regen.tmp").name
     cmd = [sys.executable, str(ROOT / "scripts" / "run_source_exporter.py"),
            str(IR_FIXTURE), str(tmp), PROJECT_NAME, BASELINE_DATE]
     r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -72,7 +75,7 @@ def main() -> int:
         print("（dry-run；确认要换基准就加 --write）新结果留在: " + str(tmp))
         return 1
 
-    tmp.replace(BASELINE)
+    shutil.move(str(tmp), str(BASELINE))
     print("基准已重写: " + str(BASELINE))
     return 0
 
