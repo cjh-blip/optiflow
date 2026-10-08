@@ -72,6 +72,7 @@ src/optiflow/
       _chain.py          房间环几何后处理
       xlsx.py            XLSX 解析（可选，pandas/openpyxl）
       stf.py             IR → DIALux STF
+      report.py          报表 PDF → 照明结果包（schema v1；表格走 span 坐标）
       adapter.py         DialuxAdapter（capabilities / submit / status / result / cancel）
   demo.py        命令行演示入口（P0 假适配器 + P1 文件层 + P2 先算后验三段）
 src/            被搬测试的 import 闭包（core / planner / validator / executor / tasks）
