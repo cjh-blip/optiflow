@@ -20,10 +20,11 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ..ir import Fixture, Metric, Point, Space, TaskSpec
+from ..geometry import point_in_polygon
 from .layout import (
     DEFAULT_EDGE_FACTOR,
     DEFAULT_SHR_LIMIT,
@@ -160,6 +161,12 @@ def _evaluate_count(count: int, polygon, flux: float, spacing: float, margin: fl
     layout = plan_grid(count, length, width, origin=(min(xs), min(ys)),
                        height=height_above_plane, shr_limit=shr_limit,
                        edge_factor=edge_factor)
+    # 非矩形房间：外接网格里会有点落在房间轮廓外（凹角/缺口），这里先剔掉，
+    # 让 layout.count / 均匀度评估 / 灯具导出三处用同一组位置。
+    # （2026-10-08 被跨步骤护栏抓现行：plan.fixture_count==export.fixtures 不一致。）
+    inside = [(x, y) for x, y in layout.positions if point_in_polygon(x, y, polygon)]
+    if len(inside) != len(layout.positions):
+        layout = replace(layout, positions=inside)
     distribution = Lambertian(flux=flux)
     photo = [PhotoFixture(x=x, y=y, height=height_above_plane, distribution=distribution)
              for x, y in layout.positions]
@@ -321,8 +328,19 @@ def plan_layout(task: TaskSpec, *,
                 f"边缘灯更贴墙，注意与窗帘盒/墙面的安装冲突"
             )
 
-        predicted_initial = average_illuminance(count, flux_per_fixture, uf, area, 1.0)
-        predicted_lumen = average_illuminance(count, flux_per_fixture, uf, area, maintenance)
+        # _evaluate_count 已把房间轮廓外的位置剔掉（凹角/缺口），这里只用它算出的位置，
+        # 并把「名义灯数 vs 实际灯数」的差额如实说出来。
+        inside_positions = list(layout.positions)
+        dropped = max(0, int(count) - len(inside_positions))
+        if dropped:
+            room_warnings.append(
+                f"{dropped} 盏按外接网格排出的灯落在房间轮廓外（凹角/缺口），已剔除；"
+                f"实际布灯 {len(inside_positions)} 盏"
+            )
+        actual_count = len(inside_positions)
+
+        predicted_initial = average_illuminance(actual_count, flux_per_fixture, uf, area, 1.0)
+        predicted_lumen = average_illuminance(actual_count, flux_per_fixture, uf, area, maintenance)
         if predicted_initial > 0:
             direct_fraction = full.e_avg / predicted_initial
             if direct_fraction > 1.0 + 1e-3:
@@ -346,7 +364,7 @@ def plan_layout(task: TaskSpec, *,
                 position=Point(x=round(x, 3), y=round(y, 3), z=round(mount_height, 3)),
                 properties={"flux": flux_per_fixture},
             )
-            for i, (x, y) in enumerate(layout.positions)
+            for i, (x, y) in enumerate(inside_positions)
         ]
 
         rooms.append(RoomPlan(

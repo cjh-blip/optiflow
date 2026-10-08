@@ -102,29 +102,62 @@ var esc = function (s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 };
 
+function taskFromIR(ir) {
+  // 用导入的 CAD 真实轮廓建模：房间多边形直接进 task.spaces，不再退回外接矩形。
+  var spaces = [];
+  var storeys = (ir && ir.storeys) || [];
+  var src = (storeys[0] && storeys[0].spaces) || [];
+  for (var i = 0; i < src.length; i++) {
+    var s = src[i];
+    if (/^家具_/.test(s.name || "")) { continue; }
+    var poly = s.polygon || [];
+    var outline = [];
+    for (var j = 0; j < poly.length; j++) {
+      outline.push({ x: poly[j][0], y: poly[j][1] });
+    }
+    if (outline.length < 3) { continue; }
+    spaces.push({
+      id: s.id,
+      name: s.name || s.id,
+      geometry: { kind: "room", height: num("height"), outline: outline },
+      work_plane: num("workplane"),
+      reflectance: { ceiling: 0.7, wall: 0.5, floor: 0.2 }
+    });
+  }
+  return spaces;
+}
+
 function buildBody() {
   var w = num("width"), d = num("depth");
+  var spaces = importedIR ? taskFromIR(importedIR) : null;
+  if (!spaces || !spaces.length) {
+    spaces = [{
+      id: "room-1",
+      name: "房间",
+      geometry: {
+        kind: "room",
+        height: num("height"),
+        outline: [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: d }, { x: 0, y: d }]
+      },
+      work_plane: num("workplane"),
+      reflectance: { ceiling: 0.7, wall: 0.5, floor: 0.2 }
+    }];
+  }
   return {
     pipeline: "lighting_plan",
     task: {
       kind: "layout",
-      spaces: [{
-        id: "room-1",
-        name: "房间",
-        geometry: {
-          kind: "room",
-          height: num("height"),
-          outline: [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: d }, { x: 0, y: d }]
-        },
-        work_plane: num("workplane"),
-        reflectance: { ceiling: 0.7, wall: 0.5, floor: 0.2 }
-      }],
+      spaces: spaces,
       fixtures: [],
       constraints: [
         { name: "illuminance_avg", target: num("target"), unit: "lx" },
         { name: "uniformity_u0", target: num("u0"), unit: "" }
       ],
-      extra: { flux: num("flux"), fixture_name: byId("fixture").value }
+      extra: {
+        flux: num("flux"),
+        fixture_name: byId("fixture").value,
+        source: importedIR ? "dxf_import" : "form"
+      }
     }
   };
 }
@@ -290,7 +323,9 @@ byId("confirmBtn").onclick = function () {
 
 byId("go").onclick = function () {
   byId("go").disabled = true;
-  byId("hint").textContent = "正在算布灯方案…";
+  byId("hint").textContent = importedIR
+    ? "正在按导入的 CAD 轮廓算布灯方案…"
+    : "正在算布灯方案…";
   fetch("/run", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
