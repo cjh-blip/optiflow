@@ -139,7 +139,7 @@ def test_stf_artifact_is_importable_dialux_text(adapter: DialuxAdapter) -> None:
     while adapter.status(job_id).status is not JobStatus.DONE:
         assert time.monotonic() < deadline
         time.sleep(0.02)
-    text = Path(adapter.result(job_id).artifacts["stf"]).read_text(encoding="utf-8")
+    text = Path(adapter.result(job_id).artifacts["stf"]).read_text(encoding="gbk")
     assert text.startswith("[VERSION]\nSTFF=1.0\n")
     assert "[ROOM.R1]" in text and "[ROOM.R2]" not in text
     assert "Height=3" in text

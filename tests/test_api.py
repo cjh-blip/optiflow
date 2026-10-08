@@ -149,15 +149,19 @@ def _request(base: str, method: str, path: str,
 
 
 def _request_raw(base: str, method: str, path: str) -> Tuple[int, str, str]:
-    """取原始响应体（页面、产物这类不是 JSON 的东西用）。"""
+    """取原始响应体（页面、产物这类不是 JSON 的东西用）。
+
+    errors="replace"：STF 产物默认 GBK 编码（DIALux 按 CP936 读），
+    通用助手不能因非 UTF-8 字节就直接炸。
+    """
     request = urllib.request.Request(base + path, method=method)
     try:
         with urllib.request.urlopen(request, timeout=90) as response:
             return (response.status,
-                    response.read().decode("utf-8"),
+                    response.read().decode("utf-8", errors="replace"),
                     response.headers.get("Content-Type", ""))
     except urllib.error.HTTPError as error:
-        return error.code, error.read().decode("utf-8"), ""
+        return error.code, error.read().decode("utf-8", errors="replace"), ""
 
 
 @pytest.fixture()
