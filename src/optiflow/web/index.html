@@ -22,7 +22,7 @@ h3 { font-size: 14px; margin: 18px 0 8px; color: var(--mute); font-weight: 600; 
         padding: 20px; margin-bottom: 18px; }
 .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
 label { display:block; font-size: 13px; color: var(--mute); }
-input { width:100%; margin-top:5px; padding:8px 10px; border:1px solid var(--line);
+input, textarea { width:100%; margin-top:5px; padding:8px 10px; border:1px solid var(--line);
         border-radius:6px; background:transparent; color:var(--fg); font-size:14px; }
 button { margin-top:16px; padding:10px 22px; border:0; border-radius:6px;
          background:var(--accent); color:#fff; font-size:15px; cursor:pointer; }
@@ -46,7 +46,24 @@ a { color: var(--accent); }
 <p class="sub">说一个目标，平台调软件给结果。目前接上的是 DIALux 文件层（产 STF，不驱动真机）。</p>
 
 <section class="card">
-  <h2>1. 说目标</h2>
+  <h2>1. 导入 CAD 图纸</h2>
+  <p class="mute">选一个 DXF 文件，平台自动解析房间与家具，并做完整性检查。确认无误后带入下一步；不导入就直接用下面的参数也可以。</p>
+  <input type="file" id="dxfFile" accept=".dxf,.DXF" style="border:0;padding:0">
+  <label style="margin-top:10px">解析配置（可选 JSON，留空用默认；真实图纸常需指定单位与图层）
+    <textarea id="dxfConfig" rows="3" placeholder='例如 {"units": "cm", "room_layers": ["0"]}'></textarea></label>
+  <button id="importBtn">解析图纸</button>
+  <p class="hint" id="importHint"></p>
+  <div id="importResult" hidden>
+    <h3>完整性检查</h3>
+    <ul id="importChecks"></ul>
+    <h3>读到的房间</h3>
+    <div id="importRooms"></div>
+    <button id="confirmBtn">确认导入，带入参数</button>
+  </div>
+</section>
+
+<section class="card">
+  <h2>2. 说目标</h2>
   <div class="grid">
     <label>房间宽度 (m)<input id="width" type="number" value="9.57" step="0.1" min="0.1"></label>
     <label>房间进深 (m)<input id="depth" type="number" value="12.97" step="0.1" min="0.1"></label>
@@ -62,7 +79,7 @@ a { color: var(--accent); }
 </section>
 
 <section class="card" id="resultCard" hidden>
-  <h2>2. 结果</h2>
+  <h2>3. 结果</h2>
   <div id="summary"></div>
   <h3>逐条校验</h3>
   <ul id="checks"></ul>
@@ -176,6 +193,100 @@ function render(data) {
   byId("limits").innerHTML = limits || "<li class='mute'>无</li>";
   byId("resultCard").hidden = false;
 }
+
+var importedIR = null;
+
+function b64FromBytes(bytes) {
+  var binary = "";
+  for (var i = 0; i < bytes.length; i++) { binary += String.fromCharCode(bytes[i]); }
+  return btoa(binary);
+}
+
+function renderImport(data) {
+  importedIR = data.ir || null;
+  var s = data.summary;
+  byId("importHint").textContent = "解析完成：" + s.rooms + " 个房间、" + s.furniture +
+      " 件家具，单位 " + (s.units || "未知") + "。";
+  var checks = "";
+  for (var i = 0; i < data.checks.length; i++) {
+    var c = data.checks[i];
+    checks += "<li class='" + (c.passed ? "pass" : "fail") + "'>" +
+              (c.passed ? "通过 " : "未过 ") + esc(c.name) +
+              " <span class='mute'>" + esc(c.detail) + "</span></li>";
+  }
+  byId("importChecks").innerHTML = checks;
+  var rows = "";
+  for (var j = 0; j < data.rooms.length; j++) {
+    var r = data.rooms[j];
+    rows += "<tr><td>" + esc(r.name) + "</td><td class='v'>" + r.area_m2 +
+            " m²</td><td class='v'>" + r.width_m + " × " + r.depth_m +
+            " m</td><td class='v'>家具 " + r.furniture + "</td></tr>";
+  }
+  byId("importRooms").innerHTML = data.rooms.length
+    ? "<table>" + rows + "</table>"
+    : "<p class='mute'>没有读到房间。</p>";
+  byId("importResult").hidden = false;
+}
+
+byId("importBtn").onclick = function () {
+  var file = byId("dxfFile").files[0];
+  if (!file) { byId("importHint").textContent = "先选一个 DXF 文件。"; return; }
+  var payload = { filename: file.name };
+  var cfgText = byId("dxfConfig").value.trim();
+  if (cfgText) {
+    try { payload.config = JSON.parse(cfgText); }
+    catch (error) {
+      byId("importHint").textContent = "解析配置不是合法 JSON：" + error.message;
+      return;
+    }
+  }
+  byId("importBtn").disabled = true;
+  byId("importHint").textContent = "正在解析 " + file.name + "…";
+  var reader = new FileReader();
+  reader.onload = function () {
+    payload.content_base64 = b64FromBytes(new Uint8Array(reader.result));
+    fetch("/import-dxf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).then(function (response) {
+      return response.json().then(function (body) {
+        if (!response.ok) { throw new Error(body.error || ("HTTP " + response.status)); }
+        return body;
+      });
+    }).then(function (body) {
+      renderImport(body);
+    }).catch(function (error) {
+      byId("importHint").textContent = "出错了：" + error.message;
+      byId("importResult").hidden = true;
+    }).then(function () {
+      byId("importBtn").disabled = false;
+    });
+  };
+  reader.readAsArrayBuffer(file);
+};
+
+byId("confirmBtn").onclick = function () {
+  var spaces = (importedIR && importedIR.storeys && importedIR.storeys[0].spaces) || [];
+  var room = null, i;
+  for (i = 0; i < spaces.length; i++) {
+    if (!/^家具_/.test(spaces[i].name || "")) { room = spaces[i]; break; }
+  }
+  if (!room) { byId("importHint").textContent = "没有可用房间可带入。"; return; }
+  var poly = room.polygon || [];
+  var xs = poly.map(function (p) { return p[0]; });
+  var ys = poly.map(function (p) { return p[1]; });
+  var w = Math.max.apply(null, xs) - Math.min.apply(null, xs);
+  var d = Math.max.apply(null, ys) - Math.min.apply(null, ys);
+  w = Math.round(w * 100) / 100;
+  d = Math.round(d * 100) / 100;
+  byId("width").value = w;
+  byId("depth").value = d;
+  if (room.ceil_h) { byId("height").value = room.ceil_h; }
+  byId("importHint").textContent = "已确认带入：「" + room.name + "」" + w + " × " + d +
+      " m，可在下一步继续调参数。";
+  byId("width").scrollIntoView({ behavior: "smooth", block: "center" });
+};
 
 byId("go").onclick = function () {
   byId("go").disabled = true;
