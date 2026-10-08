@@ -574,3 +574,82 @@ $ python -m pytest tests/test_shell_browser.py -v
 ## 剩余缺口
 
 - B-9 关闭。P1② 真机 / P3 / P4 仍待（Windows / 装机）。
+
+---
+
+# 照明结果包抽取器（本轮，2026-10-07）
+
+目标：schema v1 的机读通道落地——DIALux 报表 PDF → 结果包。开发样本由 Windows 侧回灌
+（真机 2 页报表，41.7 MB）；**样本文件与实测数值按项目红线不入库**。
+
+## 交付
+
+| 文件 | 内容 |
+|---|---|
+| `src/optiflow/adapters/dialux/report.py` | 抽取器：坐标感知（span → 视觉行 → 列 → 单元格）与文本层正则两条入口 |
+| `tests/test_dialux_report.py` (9) | 坐标路 4 + 文本路 4 + 真机端到端 1（`DIALUX_REPORT_PDF` 存在才跑，缺席 skip） |
+| `tests/fixtures/dialux_report_sample_text.txt` | 合成文本层：结构与真机同形，数值全虚构 |
+
+## 关键设计决定
+
+1. **表格必须走坐标**：真机文本层里灯具列表的列序是乱的（单元格按字形绘制顺序落进文本流），
+   纯正则无法还原列归属。改走 `get_text("dict")` 的 span：按基线中心聚行（容差 3.5pt）
+   → 按表头 span 的 x 起点切列 → 列宽折断的续行（首列为空）按列并回。
+2. **行聚类用基线中心**而非 y0：上下标与不同字号（`U`+`o`、`R`+`UG`）的 y0 差 4pt 级，
+   按 y0 会拆行。
+3. **抽不到就记缺项**：纯文本入口没有坐标 → 灯具列表记 `luminaires.table`，不猜列序。
+4. **红线**：真机样本、实测数值、品牌型号一律不进仓库；fixture 与真机同形、值全虚构。
+
+## 行为验证（实测）
+
+```
+$ DIALUX_REPORT_PDF=<真机样本> python -m pytest tests/test_dialux_report.py -v
+9 passed in 1.10s
+
+$ python -m pytest -q
+325 passed, 3 skipped in 36.31s    （基线 317+3，新增 8 条）
+```
+
+真机样本上一次跑通 `_missing` 为空的全部字段（照度 / U0 / LPD / 能耗 / 维护系数 / 反射比 /
+灯具全字段），并验证了两个坐标路特有还原：折行单元格按列拼回、表头多 span 列名合并。
+
+## 待核（随回执发 Windows）
+
+1. **产品编号位数**：已确证。29 页版产品数据表页的编号为 9 位（8 位数字＋ 1 位），
+   坐标路拼回一致；schema 文档的 8 位是笔误，已在给 Windows 的回件里说明，待 schema v1.1
+   一并订正。
+2. **房名乱码形态**：乱码含私用区码位，无法无损逆向；schema v1 的 rooms 不含 name，不影响。
+3. Ra / CCT 需报表勾「产品数据表」页，本样本缺席，字段已留位。
+
+## 29 页版升级（同轮，2026-10-08）
+
+Windows 侧回执 7 建议「抽取器按 29 页版设计」，采纳。已按 29 页版真机文本层（21.9 KB）
+完成文本路升级，新增：
+
+- `luminaires[].positions`：灯具位置图页的逐灯坐标（X / Y / 安装高度 / 编号），36 条全解析
+- `workplane.illuminance.emin_lx / emax_lx / uniformity_g2`：计算元件页整行序列
+- `metrics_extra.ra / cct_k`：产品数据表页（限定该段内抽，避开词汇表解释文字）
+- `metrics_extra.flux_total_lm / power_total_w`：灯具列表页汇总行
+- `integrity.positions_count`：与 `luminaire_count` 交叉对账用
+
+行为验证：
+
+```
+$ DIALUX_REPORT_PDF=<2 页版样本> python -m pytest tests/test_dialux_report.py -v
+13 passed in 1.02s
+
+$ python -m pytest -q
+329 passed, 3 skipped in 38.72s    （基线 317+3，本轮共新增 12 条）
+
+$ <29 页版真机 PDF 端到端>（316.7 MB，SHA-256 与交付方对账一致）
+6.9s；坐标路 + 文本路全字段命中，_missing 为空，逐灯位置表全额解析，
+integrity 的 positions_count 与 luminaire_count 相等
+```
+
+29 页版实跑：Emin / Emax / g2、Ra / CCT、Φ总数 / P总数、逐灯坐标全部命中；件数由
+坐标路表格给出。两版样本均无缺项。
+
+## 剩余缺口
+
+- 坐标路的多页/多型号边界待 29 页版 PDF 本体验证（多页切分、位置表跨页）。
+- 多房间样本仍在合成数据上覆盖。
