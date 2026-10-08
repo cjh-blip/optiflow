@@ -197,7 +197,7 @@ def test_algorithm_plan_feeds_the_dialux_file_layer(tmp_path: Path) -> None:
     assert stf_progress.status is JobStatus.DONE, stf_progress.message
     stf_result = exporter.result(stf_job)
 
-    text = Path(stf_result.artifacts["stf"]).read_text(encoding="utf-8")
+    text = Path(stf_result.artifacts["stf"]).read_text(encoding="gbk")
     assert text.startswith("[VERSION]")
     assert "[ROOM.R1]" in text
     # 算法层规划的每一盏灯都要真的写进 STF，不能中途掉队

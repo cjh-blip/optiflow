@@ -73,7 +73,7 @@ def test_validate_cli_is_self_contained(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert out_stf.exists()
-    assert "[VERSION]" in out_stf.read_text(encoding="utf-8")
+    assert "[VERSION]" in out_stf.read_text(encoding="gbk")
 
 
 def test_load_schema_resolves_from_package() -> None:

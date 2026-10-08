@@ -450,14 +450,27 @@ def test_write_stf_lf_newlines(tmp_path: Path, mini_ir):
     raw = out.read_bytes()
     assert b"\r\n" not in raw, "STF 不应含 CRLF"
     assert raw.endswith(b"\n")
-    assert raw.decode("utf-8").startswith("[VERSION]\n")
+    assert raw.decode("gbk").startswith("[VERSION]\n")
+
+
+def test_write_stf_default_encoding_is_gbk(tmp_path: Path):
+    """默认编码必须是 GBK/CP936：DIALux 按 CP936 读 STF，写 UTF-8 中文房名会乱码。
+
+    真机结论 2026-10-08：GBK 写出即解乱码（中文/ASCII 全干净）。这里钉住默认值与字节形态。
+    """
+    ir = _one_room_ir([[0, 0], [5, 0], [5, 4], [0, 4]])
+    ir["storeys"][0]["spaces"][0]["name"] = "会议室"
+    out = write_stf(ir, tmp_path / "gbk.stf")
+    raw = out.read_bytes()
+    assert "会议室".encode("gbk") in raw, "中文房名应以 GBK 字节落盘"
+    assert "会议室".encode("utf-8") not in raw, "不应是 UTF-8 字节"
 
 
 def test_write_stf_project_name_fallback(tmp_path: Path, mini_ir):
     """project.name 为空 → 退回输出文件名（对齐 test_room_1.stf 的 Name=test_room_1）。"""
     mini_ir["project"]["name"] = ""
     out = write_stf(mini_ir, tmp_path / "mvp2_out.stf")
-    assert _kv(out.read_text(encoding="utf-8"), "Name") == "mvp2_out"
+    assert _kv(out.read_text(encoding="gbk"), "Name") == "mvp2_out"
 
 
 def test_ir_to_stf_project_name_default(mini_ir):
@@ -478,7 +491,7 @@ def test_cli_roundtrip(tmp_path: Path):
     r = _run_cli(str(FIXTURE), str(out))
     assert r.returncode == 0, f"stderr:\n{r.stderr}"
     assert out.exists()
-    text = out.read_text(encoding="utf-8")
+    text = out.read_text(encoding="gbk")
     assert "[ROOM.R1]" in text and _kv(text, "NrRooms") == "2"
 
 
@@ -487,7 +500,7 @@ def test_cli_ceil_h_and_include_furniture(tmp_path: Path):
     out = tmp_path / "furn.stf"
     r = _run_cli("--include-furniture", "--ceil-h", "2.5", str(FIXTURE), str(out))
     assert r.returncode == 0, r.stderr
-    assert _kv(out.read_text(encoding="utf-8"), "NrRooms") == "3"
+    assert _kv(out.read_text(encoding="gbk"), "NrRooms") == "3"
 
 
 def test_cli_bad_ceil_h_exits_2(tmp_path: Path):

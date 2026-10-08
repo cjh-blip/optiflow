@@ -653,3 +653,82 @@ integrity 的 positions_count 与 luminaire_count 相等
 
 - 坐标路的多页/多型号边界待 29 页版 PDF 本体验证（多页切分、位置表跨页）。
 - 多房间样本仍在合成数据上覆盖。
+
+---
+
+# DXF 导入（评价点①，本轮 2026-10-08）
+
+目标：导入自动化 ＋ 允许确认 ＋ 完整性检查。壳从「手输尺寸」升级为
+「传图纸 → 解析 → 检查 → 确认带入」。
+
+## 交付
+
+| 文件 | 内容 |
+|---|---|
+| `src/optiflow/service.py` | `PlatformService.import_dxf()`：DXF(base64) → IR ＋ 检查清单 ＋ 房间概要 |
+| `src/optiflow/api.py` | `POST /import-dxf`；endpoints 清单同步 |
+| `src/optiflow/web/index.html` | 壳新增「1. 导入 CAD 图纸」：选文件 → 解析 → 完整性检查 → 确认带入参数 |
+| `tests/test_dxf_import.py` (6) | 真图纸 / 空内容 / 坏 base64 / 非 DXF / 无房间 / HTTP 400 |
+| `tests/test_shell_browser.py` (+1) | 真浏览器：选 DXF → 解析 → 检查全过 → 确认后参数带入 |
+
+## 关键设计决定
+
+1. **内容走 base64 进 JSON**：DXF 可能是 GBK 等本地编码，前端不做文本解码（避免乱码），
+   原字节直传，后端落临时文件交 ezdxf。
+2. **复用 dialux/dxf.py 全链**（房间去重 / 环平滑 / 家具归属都在里面），service 只做
+   「IO ＋ 检查清单 ＋ 概要」。
+3. **完整性检查四项**：读到房间 / 环闭合 / 环上短边 / 单位识别；一条不过 `ok=false`，
+   界面显红，不假装成功。
+4. **解析配置可选**：真实图纸常需指定单位与图层，壳里留 JSON 配置入口（留空走默认）。
+5. **确认闸门**：先给人看检查清单 ＋ 房间表，点「确认导入」才带入参数。
+
+## 行为验证（实测）
+
+```
+$ python -m pytest tests/test_dxf_import.py -q
+6 passed
+
+$ python -m pytest tests/test_shell_browser.py -v
+3 passed（含新用例 test_shell_dxf_import_journey）
+
+$ python -m pytest -q
+335 passed, 3 skipped in 39.87s
+```
+
+真浏览器截图：`build/browser_check/shell_dxf_import.png`（解析 1 房间 / 26 家具 / 四项检查全过 /
+确认后尺寸带入）。
+
+## 剩余缺口
+
+- 确认后的 IR 目前只用于「带入尺寸」，尚未把完整 IR（含家具）直接喂进布灯流水线。
+- 解析配置入口是 JSON 文本域，未做图形化；多房间图纸的「选哪个房间」未做。
+
+---
+
+# STF 编码修复：默认写 GBK（真机结论回流，2026-10-08）
+
+Windows 侧真机回归结论：「GBK 写出即可解乱码（UTF-8 乱码坐实；GBK 中文/ASCII 全干净）。
+修复方向＝STF 写 GBK（比房名转 ASCII 更优）」。本条按「真机结论回流软件」执行。
+
+## 改动
+
+| 文件 | 内容 |
+|---|---|
+| `src/optiflow/adapters/dialux/stf.py` | `write_stf()` 默认 `encoding="gbk"`；CLI 加 `--encoding`（默认 gbk） |
+| `tests/test_exporter_stf.py` | +1 条钉住默认编码（中文房名必须 GBK 字节落盘）；4 处读取改 gbk |
+| `tests/test_dialux_adapter.py` / `test_algo_adapter.py` / `test_validator_migration.py` | 读 STF 处改 gbk |
+| `tests/test_api.py` | `_request_raw` 读响应体改 `errors="replace"`（产物是 GBK，不能一炸了之） |
+
+## 行为验证（实测）
+
+```
+$ python -m pytest -q
+337 passed, 3 skipped in 37.03s
+
+新增 test_write_stf_default_encoding_is_gbk：中文房名以 GBK 字节落盘，且不是 UTF-8 字节
+```
+
+## 说明
+
+- GBK 表外字符会抛 `UnicodeEncodeError`（strict），不静默丢字；真出现再说怎么处理。
+- STF 冻结基准（`mvp3_lums_baseline.stf`）为纯 ASCII，编码切换不影响逐字节比对。

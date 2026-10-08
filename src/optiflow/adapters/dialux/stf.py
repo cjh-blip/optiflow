@@ -534,8 +534,12 @@ def write_stf(ir: Dict[str, Any], path: PathLike, *,
               normalize_ccw: bool = False,
               default_ceil_h: Optional[float] = None,
               date: Optional[str] = None,
-              encoding: str = "utf-8") -> Path:
+              encoding: str = "gbk") -> Path:
     """把 ir_to_stf 的结果写到 path（LF 换行），返回写出的 Path。
+
+    **编码默认 GBK/CP936**：DIALux evo 的 STF 导入器按 CP936 读文本，写 UTF-8 会让
+    中文房名变乱码（2026-10-08 真机回归结论：GBK 写出即解乱码，中文/ASCII 全干净）。
+    确实需要别的编码就显式传 encoding。
 
     project_name 缺省时：ir.project.name 为空则退回输出文件名（不含扩展名），
     与 S0 参考文件 test_room_1.stf 的 `Name=test_room_1` 一致
@@ -572,6 +576,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     help="把 CW 房间环翻转成 CCW（与 S0 参考文件绕向一致）；默认保留 IR 原序")
     ap.add_argument("--validate", action="store_true",
                     help="导出前对「过滤后的房间集」跑 src.validator（ERROR/HALT 拦下，WARNING 打日志）")
+    ap.add_argument("--encoding", default="gbk",
+                    help="输出编码（默认 gbk：DIALux 按 CP936 读 STF，写 utf-8 中文房名会乱码）")
     args = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -617,7 +623,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         project_name = args.project_name
         text = prepared_to_stf(ir, prepared, project_name=project_name, out_path=out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(text, encoding="utf-8", newline="\n")
+        out_path.write_text(text, encoding=args.encoding, newline="\n")
     except ValueError as e:
         logger.error("STF 生成失败：%s", e)
         return 2
