@@ -142,6 +142,13 @@ def test_shell_dxf_import_journey(shell_env) -> None:
         assert page.input_value("#width") == "9.57"
         assert page.input_value("#depth") == "12.97"
 
+        # ── 用导入的真实轮廓出方案（不是退回外接矩形）──
+        # 面积是判别信号：真实房间 116.03 m²，外接矩形 9.57×12.97 = 124.15 m²
+        page.click("#go")
+        page.wait_for_selector("#resultCard:not([hidden])", timeout=60_000)
+        summary = page.text_content("#summary")
+        assert "116.03" in summary, f"应使用 CAD 真实轮廓（面积 116.03），实际：{summary}"
+
         shot_dir = ROOT / "build" / "browser_check"
         shot_dir.mkdir(parents=True, exist_ok=True)
         page.screenshot(path=str(shot_dir / "shell_dxf_import.png"), full_page=True)

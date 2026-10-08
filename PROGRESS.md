@@ -732,3 +732,47 @@ $ python -m pytest -q
 
 - GBK 表外字符会抛 `UnicodeEncodeError`（strict），不静默丢字；真出现再说怎么处理。
 - STF 冻结基准（`mvp3_lums_baseline.stf`）为纯 ASCII，编码切换不影响逐字节比对。
+
+---
+
+# CAD 真实轮廓直通 ＋ 凹房间三处修复（2026-10-08）
+
+目标：把「导入的 CAD 轮廓」真正接进布灯流水线——壳里确认导入后，「出方案」用真实房间多边形
+建模，不再退回外接矩形。做这条链时在凹房间上连撞三个真问题，一并修掉。
+
+## 交付
+
+| 文件 | 内容 |
+|---|---|
+| `src/optiflow/web/index.html` | `taskFromIR()`：确认导入后 task.spaces 用 CAD 真实多边形；无导入时退回矩形表单 |
+| `src/optiflow/algo/uniformity.py` | 遮挡判定从「沿线采样 + 点在多边形内」换成「线段与房间边求交」的精确算法 |
+| `src/optiflow/algo/engine.py` | `_evaluate_count` 剔除房间轮廓外的排布位置；`plan_layout` 汇报剔除数；预测值用实际灯数 |
+| `tests/test_shell_browser.py` | DXF 旅程测试延伸：出方案用真实轮廓（面积 116.03 ≠ 外接矩形 124.15 作判别信号） |
+
+## 三个真问题（都被护栏/实测抓现行）
+
+1. **性能**：17 顶点凹房间单次 `evaluate` 12.1 s（遮挡判定 O(采样点×边数)）。求交法后 0.45 s（27×）。
+2. **一致性**：外接网格在凹角处产出 7 个房间外位置 → 「plan 报 57 盏、export 写 50 盏」被
+   **跨步骤护栏**拦下（409）。修法：`_evaluate_count` 里剔除，三处（layout.count / 评估 / 导出）
+   用同一组位置。
+3. **求解超时**：非矩形全求解原 >120 s；优化后 15.5 s 完成（U0 0.615 达标，代价是照度
+   760 lx 超目标 52%，已如实写 warning）。
+
+## 行为验证（实测）
+
+```
+$ python -m pytest -q
+337 passed, 3 skipped in 55.42s
+
+HTTP 端到端（真实 CAD 轮廓）：
+$ POST /import-dxf → 1 房间 / 116.03 m²（17 顶点）
+$ POST /run → 15.5 s，ok=True
+  plan: fixture_count=50, area=116.03, U0=0.615, Eavg=759.9
+  export: fixtures=50（与 plan 一致）
+```
+
+## 剩余缺口
+
+- 排布仍按外接矩形网格（凹角位置靠剔除处理，不是真正的「多边形内排布」）；
+  更优做法是内缩多边形排布。
+- 壳里多房间图纸默认带全部房间进方案，未做房间勾选。
