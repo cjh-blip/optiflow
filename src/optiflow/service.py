@@ -120,6 +120,89 @@ class PlatformService:
     def capabilities(self) -> List[Dict[str, Any]]:
         return [capability_to_dict(a.capabilities()) for a in self.registry.all()]
 
+    # -------------------------------------------------- DXF 导入（评价点①）
+    def import_dxf(self, filename: str, content_base64: str,
+                   config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """DXF → IR ＋ 完整性检查。给「导入自动化 + 允许确认 + 完整性检查」用。
+
+        返回完整 IR（确认后可直接喂下游），附检查清单与房间概要。
+        解析失败或内容为空一律 ValueError（传输层翻 400），绝不返回半个结果。
+        """
+        import base64
+        import tempfile
+
+        from .adapters.dialux._chain import polygon_area
+        from .adapters.dialux.dxf import ParseConfig, parse_dxf
+
+        if not content_base64:
+            raise ValueError("请求里没有 DXF 内容（content_base64）")
+        try:
+            raw = base64.b64decode(content_base64, validate=True)
+        except Exception as exc:  # noqa: BLE001 - 交给传输层做 400
+            raise ValueError(f"content_base64 不是合法 base64：{exc}") from None
+        if not raw.strip():
+            raise ValueError("DXF 内容为空")
+
+        cfg = ParseConfig.from_dict(config) if config else ParseConfig()
+        name = Path(filename or "drawing.dxf").name
+        with tempfile.TemporaryDirectory(prefix="optiflow_dxf_") as tmp:
+            path = Path(tmp) / name
+            path.write_bytes(raw)
+            try:
+                ir = parse_dxf(str(path), cfg)
+            except Exception as exc:  # noqa: BLE001
+                raise ValueError(f"DXF 解析失败：{type(exc).__name__}: {exc}") from None
+
+        meta = ir.get("_meta", {})
+        rooms_total = int(meta.get("rooms", 0))
+        closed = int(meta.get("rooms_closed", 0))
+        saw = int(meta.get("rooms_with_sawtooth", 0))
+
+        rooms_out: List[Dict[str, Any]] = []
+        storeys = ir.get("storeys") or [{}]
+        for space in storeys[0].get("spaces", []):
+            if str(space.get("name", "")).startswith("家具_"):
+                continue
+            poly = space.get("polygon") or []
+            xs = [float(p[0]) for p in poly] or [0.0]
+            ys = [float(p[1]) for p in poly] or [0.0]
+            rooms_out.append({
+                "id": space.get("id"),
+                "name": space.get("name"),
+                "vertices": len(poly),
+                "area_m2": round(polygon_area(poly), 2) if len(poly) >= 3 else 0.0,
+                "width_m": round(max(xs) - min(xs), 2),
+                "depth_m": round(max(ys) - min(ys), 2),
+                "furniture": len(space.get("furniture") or []),
+            })
+
+        checks = [
+            {"name": "读到房间", "passed": rooms_total > 0,
+             "detail": f"{rooms_total} 个闭合房间" if rooms_total else "没读到房间，检查图层与单位设置"},
+            {"name": "房间环闭合", "passed": rooms_total > 0 and closed == rooms_total,
+             "detail": f"{closed}/{rooms_total} 个环闭合"},
+            {"name": "环上短边", "passed": saw == 0,
+             "detail": "无异常短边" if saw == 0 else f"{saw} 个房间环上有 <0.2m 短边，可能混入家具轮廓"},
+            {"name": "单位识别", "passed": bool(meta.get("dxf_units")),
+             "detail": f"按 {meta.get('dxf_units')} 解析（已折算为米）"},
+        ]
+
+        return {
+            "ok": all(c["passed"] for c in checks),
+            "filename": name,
+            "summary": {
+                "rooms": rooms_total,
+                "rooms_closed": closed,
+                "furniture": int(meta.get("furniture", 0)),
+                "luminaires": int(meta.get("luminaires", 0)),
+                "units": meta.get("dxf_units"),
+                "notches_removed": int(meta.get("room_notches_removed", 0)),
+            },
+            "checks": checks,
+            "rooms": rooms_out,
+            "ir": ir,
+        }
+
     def pipelines(self) -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []
         for name, factory in sorted(DEFAULT_PIPELINES.items()):

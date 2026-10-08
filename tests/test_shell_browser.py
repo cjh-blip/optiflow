@@ -117,3 +117,33 @@ def test_shell_reflects_user_input(shell_env) -> None:
         assert "600" in page.text_content("#checks")
     finally:
         context.close()
+
+
+def test_shell_dxf_import_journey(shell_env) -> None:
+    """评价点①端到端：选 DXF → 解析 → 完整性检查 → 确认带入参数。"""
+    context, page = _open_shell(shell_env)
+    try:
+        fixture = ROOT / "tests" / "fixtures" / "sample_room.dxf"
+        cfg = (ROOT / "tests" / "fixtures" / "sample_parse_config.json").read_text(
+            encoding="utf-8")
+        page.set_input_files("#dxfFile", str(fixture))
+        page.fill("#dxfConfig", cfg)
+        page.click("#importBtn")
+        page.wait_for_selector("#importResult:not([hidden])", timeout=30_000)
+
+        # 完整性检查：没有一条 fail，且至少四条结论
+        assert page.locator("#importChecks li.fail").count() == 0
+        assert page.locator("#importChecks li.pass").count() >= 4
+        rooms_text = page.text_content("#importRooms")
+        assert "m²" in rooms_text, rooms_text
+
+        # 确认闸门：带入参数
+        page.click("#confirmBtn")
+        assert page.input_value("#width") == "9.57"
+        assert page.input_value("#depth") == "12.97"
+
+        shot_dir = ROOT / "build" / "browser_check"
+        shot_dir.mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=str(shot_dir / "shell_dxf_import.png"), full_page=True)
+    finally:
+        context.close()

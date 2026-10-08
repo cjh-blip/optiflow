@@ -142,6 +142,7 @@ D:\dev\anaconda3\python.exe -m optiflow.api --port 8765
 | GET | `/capabilities` | 各适配器的能力声明（含 `limits`） |
 | GET | `/pipelines` | 可用流水线及每步走哪条通道 |
 | POST | `/run` | 同步跑一条流水线 → 结果 + 校验结论 |
+| POST | `/import-dxf` | DXF（base64）→ IR ＋ 完整性检查清单 ＋ 房间概要 |
 | POST | `/jobs` | 异步提交 → `job_id` |
 | GET | `/jobs/{id}` | 进度 |
 | GET | `/jobs/{id}/result` | 结果 |
