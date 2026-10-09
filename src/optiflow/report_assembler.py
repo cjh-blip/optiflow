@@ -148,21 +148,26 @@ def _standard_block(crit: Dict[str, Dict[str, Any]], criteria_raw: Optional[Dict
     if not crit:
         lines.append("> 未取证：未提供判据表。")
         return "\n".join(lines)
-    lines.append("| 指标 | 阈值 | 标准 | 表号 | 来源页码 |")
-    lines.append("|---|---:|---|---|---|")
+    lines.append("| 指标 | 阈值 | 出处 |")
+    lines.append("|---|---:|---|")
     for metric in _METRICS:
         rule = crit.get(metric["crit"])
         if not rule:
             continue
-        page = rule.get("page_print")
+        source = f"{rule.get('standard', STANDARD)} {rule.get('table', '—')}"
+        bits = []
+        if rule.get("page_print"):
+            bits.append(f"印刷 {rule['page_print']}")
+        if rule.get("page_pdf"):
+            bits.append(f"PDF {rule['page_pdf']}")
+        if bits:
+            source += "（" + " / ".join(bits) + "）"
         lines.append(
-            f"| {metric['label']} | {_crit_text(rule)} "
-            f"| {rule.get('standard', STANDARD)} | {rule.get('table', '—')} "
-            f"| 印刷 {page}" + (f"（PDF {rule.get('page_pdf')}）" if rule.get("page_pdf") else "") + " |"
+            f"| {metric['label']} | {_crit_text(rule)} | {source} |"
         )
     cct = crit.get("cct_k")
     if cct is None:
-        lines.append(f"| 相关色温 CCT | —（{STANDARD} 未对会议室规定色温限值） | — | — | — |")
+        lines.append(f"| 相关色温 CCT | —（{STANDARD} 未对会议室规定色温限值） | — |")
     if criteria_raw and criteria_raw.get("unevidenced"):
         lines.append("")
         lines.append("未取证项（不参与判定）：")
@@ -292,6 +297,49 @@ def assemble_report(
     return "\n".join(lines)
 
 
+def markdown_to_docx(markdown_text: str, out_path: Path, *,
+                     reference: Optional[Path] = None) -> Path:
+    """Markdown → DOCX（pandoc，带中文 reference 模板），并给表格补边框。
+
+    依赖：pypandoc_binary（自带 pandoc）。缺依赖时给出明确安装提示。
+    """
+    from pathlib import Path as _Path
+
+    try:
+        import pypandoc
+    except ImportError as exc:  # pragma: no cover - 环境相关
+        raise RuntimeError("导出 DOCX 需要 pandoc：pip install pypandoc_binary") from exc
+
+    out = _Path(out_path)
+    ref = reference if reference is not None else (_Path(__file__).parent / "assets" / "reference_zh.docx")
+    args = [f"--reference-doc={ref}"] if ref and _Path(ref).exists() else []
+    pypandoc.convert_text(markdown_text, "docx", format="gfm",
+                          outputfile=str(out), extra_args=args)
+
+    # 后处理：直接给每个表格加边框（样式继承在部分渲染器里不稳，直接格式化最可靠）
+    try:
+        import docx
+        from docx.oxml import parse_xml
+        from docx.oxml.ns import nsdecls
+
+        document = docx.Document(str(out))
+        border_xml = (
+            '<w:tblBorders %s>'
+            '<w:top w:val="single" w:sz="4" w:color="808080"/>'
+            '<w:left w:val="single" w:sz="4" w:color="808080"/>'
+            '<w:bottom w:val="single" w:sz="4" w:color="808080"/>'
+            '<w:right w:val="single" w:sz="4" w:color="808080"/>'
+            '<w:insideH w:val="single" w:sz="4" w:color="808080"/>'
+            '<w:insideV w:val="single" w:sz="4" w:color="808080"/>'
+            '</w:tblBorders>' % nsdecls('w'))
+        for table in document.tables:
+            table._tbl.tblPr.append(parse_xml(border_xml))
+        document.save(str(out))
+    except ImportError:  # pragma: no cover - 没 python-docx 就跳过打磨
+        pass
+    return out
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     import argparse
     import json
@@ -306,6 +354,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--criteria", help="判据表 JSON 路径")
     ap.add_argument("--price", help="价格 JSON 路径（可选）")
     ap.add_argument("--image", action="append", default=None, help="渲染图路径（可多次）")
+    ap.add_argument("--docx", help="同时导出 DOCX（需要 pypandoc_binary）")
     ap.add_argument("--project-name", default="会议室照明设计")
     args = ap.parse_args(argv)
 
@@ -321,6 +370,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"报告已写入：{args.out}")
     else:
         print(text)
+    if args.docx:
+        docx_path = markdown_to_docx(text, Path(args.docx))
+        print(f"DOCX 已写入：{docx_path}")
     return 0
 
 

@@ -60,7 +60,7 @@ src/optiflow/
   orchestrator.py 编排层：任务分解 → 选能力（有歧义就报错）→ 拼流水线 → 校验结果
   pipelines.py   具体流水线：照明方案 = 算法层出方案 → 文件层落 STF
   service.py     服务门面：HTTP 与 MCP 共用的同一套入口（语义只在这一层）
-  report_assembler.py 结果包 → 照明设计报告（Markdown，7 块；数值只从结果包取）
+  report_assembler.py 结果包 → 照明设计报告（Markdown 7 块 ＋ DOCX 导出；数值只从结果包取）
   api.py         HTTP 接口（stdlib http.server，零新增依赖）
   mcp.py         MCP server（stdio + tools 子集）
   geometry.py    共享几何原语（射线法 / 鞋带面积）—— 算法层与适配器共用
@@ -262,7 +262,7 @@ STF 的判卷标准是**迁移等价性**，参照物在本仓冻结：
 | P5 极简壳 → APP | ✅ 完成（单页「导入 CAD → 说目标 → 出结果 → 下载 STF」） |
 | 结果包抽取器（报表 PDF → schema v1） | ✅ 完成（2 页 / 29 页版全字段，含逐灯坐标；UGR 字段待样本） |
 | DXF 导入（评价点①） | ✅ 完成（`/import-dxf` + 壳上完整性检查 + 确认带入） |
-| 报告组装器（评价点④） | ✅ Markdown 主路径完成（7 块；DOCX/PPT 导出待接） |
+| 报告组装器（评价点④） | ✅ Markdown ＋ DOCX 主路径完成（7 块；PPT 导出待接） |
 | P1② DIALux 真机 UI 与落灯 | ⏸ 已部分落地（Windows 侧坐标链 / 换灯 / 家具探路；按单点短跑安排） |
 | P3 Creo 适配器 | ⛔ 需装机（本机未装 Creo/PTC） |
 | P4 Zemax 适配器（ZPL 降级路） | ⛔ 需装机（本机未装 Zemax） |
