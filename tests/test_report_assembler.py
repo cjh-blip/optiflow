@@ -143,6 +143,49 @@ def test_markdown_to_docx_with_borders(tmp_path) -> None:
         assert table._tbl.tblPr.find(qn("w:tblBorders")) is not None, "每个表都应有边框"
 
 
+# ============================================================ 图件透传（服务层）
+
+
+def _stub_service(tmp_path, monkeypatch):
+    """服务实例 ＋ 被测的 extract 桩（只验透传，不重测抽取）。"""
+    from optiflow import service as service_mod
+    from optiflow.adapters.dialux import report as report_mod
+
+    monkeypatch.setattr(
+        report_mod, "extract",
+        lambda path, **kw: {"meta": {}, "workplane": {}, "artifacts": {}, "_missing": []},
+    )
+    svc = service_mod.PlatformService(service_mod.build_default_registry(tmp_path), project=None)
+    return svc
+
+
+def test_service_passes_render_images_into_report(tmp_path, monkeypatch) -> None:
+    """图件要能透到报告里（HTTP 接口原先没这个参数，壳第 4 块演示会缺图）。"""
+    svc = _stub_service(tmp_path, monkeypatch)
+    img = tmp_path / "render.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n")
+    pdf = tmp_path / "report.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+
+    out = svc.assemble_report_pdf(str(pdf), render_images=[str(img)])
+    assert out["render_images"] == [str(img)]
+    assert str(img) in out["markdown"]
+    assert "未取证：渲染图" not in out["markdown"]
+
+
+def test_service_missing_render_image_fails_with_the_path(tmp_path, monkeypatch) -> None:
+    """图件缺失要当场报出是哪一张（对齐 A5-05 的失败诊断口径）。"""
+    import pytest
+
+    svc = _stub_service(tmp_path, monkeypatch)
+    pdf = tmp_path / "report.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    missing = tmp_path / "没有这张图.png"
+
+    with pytest.raises(ValueError, match="渲染图不存在"):
+        svc.assemble_report_pdf(str(pdf), render_images=[str(missing)])
+
+
 # ============================================================ HTTP 层
 
 

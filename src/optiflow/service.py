@@ -21,7 +21,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from .adapter import Adapter, CapabilityDecl
 from .adapters.dialux import DialuxAdapter
@@ -208,6 +208,7 @@ class PlatformService:
                             criteria: Optional[Dict[str, Any]] = None,
                             criteria_path: Optional[str] = None,
                             price: Optional[Dict[str, Any]] = None,
+                            render_images: Optional[Sequence[str]] = None,
                             project_name: str = "会议室照明设计") -> Dict[str, Any]:
         """DIALux 报表 PDF（本地路径）→ 结果包 → 报告 Markdown。
 
@@ -229,11 +230,20 @@ class PlatformService:
                 raise ValueError(f"判据表 JSON 不存在：{cap}")
             criteria = json.loads(cap.read_text(encoding="utf-8"))
         package = extract(path, project=project_name)
+        # 图件缺失要当场报出是哪一张（对齐 A5-05 的失败诊断口径），不让 pandoc 在后面崩
+        images: Optional[List[str]] = None
+        if render_images:
+            images = [str(p) for p in render_images]
+            for img in images:
+                if not Path(img).exists():
+                    raise ValueError(f"渲染图不存在：{img}")
         markdown = assemble_report(
-            package, criteria=criteria, price=price, project_name=project_name)
+            package, criteria=criteria, price=price, render_images=images,
+            project_name=project_name)
         return {
             "ok": True,
             "source_pdf": str(path),
+            "render_images": images or [],
             "package_missing": package.get("_missing") or [],
             "markdown": markdown,
         }

@@ -184,6 +184,7 @@ class _Handler(BaseHTTPRequestHandler):
                     criteria=body.get("criteria") or None,
                     criteria_path=str(body.get("criteria_path") or "") or None,
                     price=body.get("price") or None,
+                    render_images=body.get("images") or None,
                     project_name=str(body.get("project_name") or "会议室照明设计")))
             elif path.startswith("/jobs/") and path.endswith("/cancel"):
                 job_id = [p for p in path.split("/") if p][1]
