@@ -137,7 +137,7 @@ def test_rooms_and_workplane(parsed: dict) -> None:
         "emax_lx": None,
         "uniformity_g2": None,
     }
-    # UGR / 逐点网格在报表层不可取，固定 None
+    # 无眩光计算页的报表：ugr 为 null（schema v1 §三允许）；逐点网格固定 None
     assert wp["ugr"] is None and wp["grid"] is None
 
 
@@ -233,6 +233,61 @@ def test_total_rows_are_read_but_never_inferred_into_count() -> None:
     assert out["metrics_extra"]["power_total_w"] == 3600.0
     assert out["luminaires"][0]["count"] is None
     assert out["integrity"]["positions_count"] == 2
+
+
+# ---------------------------------------------------------------- UGR
+
+# 形态照 10-08 UGR 样本（_ugr_probe 真机报表），数值虚构（红线：真机数据不入库）
+_UGR_BLOCK = (
+    "计算点 2 (RUG)\n最大眩光值在\n135°\n最大\n17.4\n目标\n≤ 19.0\n"
+    "观察范围\n0° - 360°\n间距\n15°\n高度\n1.200 m\n索引\nCP2\n"
+)
+
+
+def test_ugr_block_gives_full_point_record() -> None:
+    """眩光块 → 点记录：计算点标识与评估条件全保留（Windows 三条要求 1/2），ugr_max 必需（3）。"""
+    out = parse_report_text(_UGR_BLOCK)
+    assert out["workplane"]["ugr"] == [
+        {
+            "point": "计算点 2 (RUG)",
+            "index": "CP2",
+            "ugr_max": 17.4,
+            "max_at_deg": 135.0,
+            "target": 19.0,
+            "range_from": 0.0,
+            "range_to": 360.0,
+            "step": 15.0,
+            "height_m": 1.2,
+        }
+    ]
+
+
+def test_ugr_multiple_points_stay_separate_records() -> None:
+    """多观察点各成一条记录，不压成标量——多点是最近的下一站。"""
+    block2 = (
+        "计算点 3 (RUG)\n最大眩光值在\n240°\n最大\n12.1\n目标\n≤ 19.0\n"
+        "观察范围\n0° - 360°\n间距\n15°\n高度\n1.200 m\n索引\nCP3\n"
+    )
+    out = parse_report_text(_UGR_BLOCK + "\n" + block2)
+    pts = out["workplane"]["ugr"]
+    assert [p["index"] for p in pts] == ["CP2", "CP3"]
+    assert [p["ugr_max"] for p in pts] == [17.4, 12.1]
+
+
+def test_ugr_panel_text_zh_and_en() -> None:
+    """UIA 面板回传文本两形态（Windows 侧锚定）都能取，其余字段缺省 None。"""
+    from optiflow.adapters.dialux.report import parse_ugr_panel
+
+    zh = parse_ugr_panel("计算点 1 (RUG) 最大 17.4 目标 <= 19.0")
+    assert zh["point"] == "计算点 1 (RUG)"
+    assert zh["ugr_max"] == 17.4 and zh["target"] == 19.0
+    assert zh["index"] is None and zh["step"] is None
+
+    en = parse_ugr_panel("Calculation point Maximum 12.3 target 19")
+    assert en["point"] == "Calculation point"
+    assert en["ugr_max"] == 12.3 and en["target"] == 19.0
+
+    assert parse_ugr_panel("这行没有眩光数据") is None
 
 
 # ---------------------------------------------------------------- 端到端（真机样本）

@@ -98,6 +98,19 @@ def test_missing_ugr_marks_unevidenced() -> None:
     assert "无实测值" in text or "未取证" in text
 
 
+def test_ugr_point_list_uses_worst_case() -> None:
+    """UGR 点记录列表 → 指标表取最不利值判定；单点明细不进指标表。"""
+    pkg = copy.deepcopy(PACKAGE)
+    pkg["workplane"]["ugr"] = [
+        {"point": "计算点 1 (RUG)", "index": "CP1", "ugr_max": 17.4, "target": 19.0},
+        {"point": "计算点 2 (RUG)", "index": "CP2", "ugr_max": 12.1, "target": 19.0},
+    ]
+    text = assemble_report(pkg, criteria=CRITERIA)
+    assert "17.4" in text
+    assert "12.1" not in text
+    assert "未取证" in text  # 渲染图/价格等其他缺项仍正常标注
+
+
 def test_markdown_to_docx_with_borders(tmp_path) -> None:
     """Markdown → DOCX（pandoc）：产出文件，且每个表格都补上了边框。"""
     import pytest
