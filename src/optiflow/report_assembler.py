@@ -114,6 +114,16 @@ def _effect_block(pkg: Dict[str, Any], crit: Dict[str, Dict[str, Any]]) -> str:
     lines.append("|---|---:|---:|---|")
     for metric in _METRICS:
         value = _dig(pkg, metric["pkg"])
+        if isinstance(value, list):
+            # UGR 点记录列表（多样本就绪，见抽取器）：报告取最不利值参与判定
+            value = max(
+                (
+                    p.get("ugr_max")
+                    for p in value
+                    if isinstance(p, dict) and p.get("ugr_max") is not None
+                ),
+                default=None,
+            )
         rule = crit.get(metric["crit"]) or {}
         threshold = _crit_text(rule) if rule else "—"
         lines.append(
@@ -232,7 +242,7 @@ def _missing_block(pkg: Dict[str, Any], price: Optional[Dict[str, Any]],
     if not images:
         missing.append("渲染图 / 伪彩照度图")
     if _dig(pkg, ("workplane", "ugr")) is None:
-        missing.append("UGR 实测值（等你方报表样本）")
+        missing.append("UGR 实测值（报表未含眩光计算页）")
     lines.append("**结论**：以上指标均来自 DIALux 导出（机读结果包），AI 只做组织与文字。")
     lines.append("")
     if missing:

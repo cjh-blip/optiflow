@@ -821,3 +821,44 @@ DOCX：pandoc 3.9＋中文模板转出，表格三张均带边框（Quick Look �
 
 - PPT 导出未做（PPT 两条验收 A4-06/09 待接）；渲染图待真机单点。
 - LPD 超目标值（8.7 > 6.5）属设计口径问题（目标值/现行值两套口径），报告如实呈现，待团队确认口径。
+
+---
+
+# UGR 字段落地（本轮 2026-10-09）
+
+目标：兑现「样本到手后抽取器补 UGR 字段」——10-08 UGR 样本（交接区 `_给Mac_20261008_UGR报表样本`，_ugr_probe 3 页报表）已在手，把 schema v1 §三的 `workplane.ugr` 从固定 null 转正；字段形状按 Windows 侧 10-09 回执三条要求设计。
+
+## 交付
+
+| 文件 | 内容 |
+|---|---|
+| `src/optiflow/adapters/dialux/report.py` | `_UGR_BLOCK` 报表眩光块解析 → `workplane.ugr` **点记录列表**；`parse_ugr_panel()` 吃 UIA 面板回传文本（中/英两形态） |
+| `src/optiflow/report_assembler.py` | 指标表消费点列表：取最不利值参与判定；UGR 缺席文案更新 |
+| `tests/test_dialux_report.py` (+3) ＋ `tests/test_report_assembler.py` (+1) | 全字段记录 / 多点分离 / 面板两形态 / 最不利值判定 |
+
+## 字段形状（Windows 三条要求逐条兑现）
+
+`workplane.ugr = null | [ { point, index, ugr_max, max_at_deg, target, range_from, range_to, step, height_m } ]`
+
+1. 计算点标识（point / index）保留，列表化、不压标量——多观察点是最近的下一站；
+2. 评估条件四元组 target / step / range_from / range_to 全保留（角度单位，记在字段值里）；
+3. `ugr_max` 唯一必需；面板文本中/英两形态均可取（形态锚定 Windows 侧 test_ugr_task）。
+
+## 行为验证（实测）
+
+```
+$ python -m pytest -q
+350 passed, 3 skipped in 56.90s
+
+真机 UGR 样本 PDF → extract()：
+[{"point": "计算点 1 (RUG)", "index": "CP1", "ugr_max": 16.2, "max_at_deg": 240.0,
+  "target": 19.0, "range_from": 0.0, "range_to": 360.0, "step": 15.0, "height_m": 1.2}]
+
+报告组装（＋判据表 v1）：| 统一眩光值 UGR | 16.2 | ≤ 19 | 达标 |
+面板两形态：16.2 / 12.7 均正确取值；无眩光块报表 → null → 报告层标未取证
+```
+
+## 剩余缺口
+
+- Windows 侧 ugr_result.json（UIA 任务链）回传后定接入姿势（喂 `parse_ugr_panel` 原文还是吃已解析 JSON）。
+- 逐点网格仍固定 null（报表只有等值线矢量图）。

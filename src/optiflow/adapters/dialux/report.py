@@ -20,7 +20,12 @@
   半字节，**无法无损逆向**；schema v1 的 rooms 不含 name，故不影响结果包，原样保留。
 - 产品编号列宽不够时会折行（8 位编号被切成 8+1 两段落进文本流），坐标路按列拼回
   9 位；schema 定稿文档记的是 8 位，原值待 Windows 侧在 DIALux 里核。
-- UGR 与逐点网格在报表层不可取（RUG 列为空、只有等值线矢量图）→ 固定 None。
+- **UGR**：报表勾选眩光计算后，「计算点 n (RUG)」块可取（2026-10-08 UGR 样本实测）→
+  `workplane.ugr` 为**点记录列表**（point / index / ugr_max / max_at_deg / target /
+  range_from / range_to / step / height_m），多观察点就绪、不压成标量；未勾选眩光
+  计算的报表为 null（schema v1 §三允许 null，报告层标未取证）。逐点网格仍只有
+  等值线矢量图 → 固定 None。UIA 面板回传的单点文本走 :func:`parse_ugr_panel`
+  （中/英两形态，形态锚定 Windows 侧 test_ugr_task）。
 
 数值一律从文本层抽，不手抄；抽不到的字段置 None 并记入 `_missing`。
 """
@@ -35,6 +40,7 @@ __all__ = [
     "pdf_text_by_page",
     "pdf_spans",
     "parse_report_text",
+    "parse_ugr_panel",
     "extract",
 ]
 
@@ -292,6 +298,90 @@ def _rooms(text: str, missing: List[str]) -> List[Dict[str, Any]]:
     ]
 
 
+# ---------------------------------------------------------------- 文本路：UGR
+
+# 报表「计算点 n (RUG)」眩光块（DIALux evo 14 中文报表，2026-10-08 样本实测形态）：
+# 标签行 → 最大眩光值在(角度) → 最大 → 目标 → 观察范围 → 间距 → 高度 → 索引
+_UGR_BLOCK = re.compile(
+    rf"(?P<point>[^\n]*\(RUG\))\s*"
+    rf"最大眩光值在\s*(?P<at>{_NUM})°\s*"
+    rf"最大\s*(?P<max>{_NUM})\s*"
+    rf"目标\s*(?:≤|<=|<)?\s*(?P<target>{_NUM})\s*"
+    rf"观察范围\s*(?P<rf>{_NUM})°\s*-\s*(?P<rt>{_NUM})°\s*"
+    rf"间距\s*(?P<step>{_NUM})°\s*"
+    rf"高度\s*(?P<h>{_NUM})\s*m\s*"
+    rf"索引\s*(?P<idx>[A-Za-z]\w*)"
+)
+
+# UIA 面板回传文本（单点、单行），中/英两形态由 Windows 侧 test_ugr_task 锚定：
+#   中：计算点 1 (RUG) 最大 16.2 目标 <= 19.0
+#   英：Calculation point Maximum 12.7 target 19
+_UGR_PANEL = (
+    re.compile(
+        rf"(?P<point>\S[^\n]*?)\s*最大\s*(?P<max>{_NUM})\s*目标\s*(?:≤|<=|<)?\s*(?P<target>{_NUM})"
+    ),
+    re.compile(
+        rf"(?P<point>\S[^\n]*?)\s*Maximum\s*(?P<max>{_NUM})\s*[Tt]arget\s*(?:≤|<=|<)?\s*(?P<target>{_NUM})"
+    ),
+)
+
+
+def _ugr_record(
+    point: str,
+    ugr_max: str,
+    *,
+    index: Optional[str] = None,
+    at: Optional[str] = None,
+    target: Optional[str] = None,
+    range_from: Optional[str] = None,
+    range_to: Optional[str] = None,
+    step: Optional[str] = None,
+    height: Optional[str] = None,
+) -> Dict[str, Any]:
+    """UGR 点记录（schema v1 §三 转 A 档）。`ugr_max` 唯一必需，其余有则留、无则 None。"""
+    return {
+        "point": point,
+        "index": index,
+        "ugr_max": _f(ugr_max),
+        "max_at_deg": _f(at) if at is not None else None,
+        "target": _f(target) if target is not None else None,
+        "range_from": _f(range_from) if range_from is not None else None,
+        "range_to": _f(range_to) if range_to is not None else None,
+        "step": _f(step) if step is not None else None,
+        "height_m": _f(height) if height is not None else None,
+    }
+
+
+def _ugr_points(text: str) -> Optional[List[Dict[str, Any]]]:
+    """报表全文 → UGR 点记录列表；无眩光块返回 None（schema 允许 null）。"""
+    points = [
+        _ugr_record(
+            m.group("point").strip(),
+            m.group("max"),
+            index=m.group("idx"),
+            at=m.group("at"),
+            target=m.group("target"),
+            range_from=m.group("rf"),
+            range_to=m.group("rt"),
+            step=m.group("step"),
+            height=m.group("h"),
+        )
+        for m in _UGR_BLOCK.finditer(text)
+    ]
+    return points or None
+
+
+def parse_ugr_panel(text: str) -> Optional[Dict[str, Any]]:
+    """UIA 面板回传文本（中/英两形态）→ 单点 UGR 记录；取不到返回 None。"""
+    for rx in _UGR_PANEL:
+        m = rx.search(text)
+        if m:
+            return _ugr_record(
+                m.group("point").strip(), m.group("max"), target=m.group("target")
+            )
+    return None
+
+
 def _workplane(text: str, missing: List[str]) -> Dict[str, Any]:
     h = _first(rf"高度工作面\s*\n\s*({_NUM})\s*m", text)
     edge = _first(rf"边缘区工作面\s*\n\s*({_NUM})\s*m", text)
@@ -347,8 +437,9 @@ def _workplane(text: str, missing: List[str]) -> Dict[str, Any]:
             "emax_lx": _f(emax) if emax else None,
             "uniformity_g2": _f(g2) if g2 else None,
         },
-        # 报表 RUG 列空、无逐点矩阵，两项在 schema v1 里固定为空
-        "ugr": None,
+        # UGR：含眩光块 → 点记录列表（多样本就绪）；未勾选的报表 → null
+        "ugr": _ugr_points(text),
+        # 逐点网格仍只有等值线矢量图，固定 None
         "grid": None,
     }
 
