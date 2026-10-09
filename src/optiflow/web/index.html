@@ -15,6 +15,9 @@ body { margin:0; padding:28px 18px 60px; background:var(--bg); color:var(--fg);
        font:15px/1.65 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
 main { max-width: 860px; margin: 0 auto; }
 h1 { font-size: 24px; margin: 0 0 4px; }
+pre { white-space: pre-wrap; font-size: 13px; line-height: 1.6; max-height: 420px;
+      overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 12px;
+      margin: 0 0 12px; }
 h2 { font-size: 16px; margin: 0 0 14px; }
 h3 { font-size: 14px; margin: 18px 0 8px; color: var(--mute); font-weight: 600; }
 .sub { color: var(--mute); margin: 0 0 24px; }
@@ -87,6 +90,20 @@ a { color: var(--accent); }
   <div id="artifacts"></div>
   <h3>这份方案的适用边界</h3>
   <ul id="limits"></ul>
+</section>
+
+<section class="card">
+  <h2>4. 生成报告（DIALux 结果 → 报告）</h2>
+  <p class="mute">填 DIALux 报表 PDF 的路径（本机文件），平台读出机读结果并组装成报告。数值全部来自报表，缺项显式标注，不补齐。</p>
+  <label>报表 PDF 路径<input id="reportPath" type="text" placeholder="/path/to/dialux_report.pdf"></label>
+  <label style="margin-top:10px">判据表 JSON 路径（可选，用于国标对标）<input id="criteriaPath" type="text" placeholder="/path/to/criteria.json"></label>
+  <button id="reportBtn">生成报告</button>
+  <p class="hint" id="reportHint"></p>
+  <div id="reportOut" hidden>
+    <h3>报告预览</h3>
+    <pre id="reportText"></pre>
+    <button id="downloadReport">下载报告 (Markdown)</button>
+  </div>
 </section>
 
 <section class="card">
@@ -343,6 +360,52 @@ byId("go").onclick = function () {
   }).then(function () {
     byId("go").disabled = false;
   });
+};
+
+var reportMarkdown = "";
+
+byId("reportBtn").onclick = function () {
+  var path = byId("reportPath").value.trim();
+  if (!path) { byId("reportHint").textContent = "先填报表 PDF 的路径。"; return; }
+  var payload = { report_pdf: path };
+  var crit = byId("criteriaPath").value.trim();
+  if (crit) { payload.criteria_path = crit; }
+  byId("reportBtn").disabled = true;
+  byId("reportHint").textContent = "正在读报表并组装报告…";
+  fetch("/assemble-report", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }).then(function (response) {
+    return response.json().then(function (body) {
+      if (!response.ok) { throw new Error(body.error || ("HTTP " + response.status)); }
+      return body;
+    });
+  }).then(function (body) {
+    reportMarkdown = body.markdown || "";
+    byId("reportText").textContent = reportMarkdown;
+    byId("reportOut").hidden = false;
+    var missing = (body.package_missing || []).length;
+    byId("reportHint").textContent = "报告已生成" + (missing ? "（结果包缺项 " + missing + " 个，报告中已标注）" : "") + "。";
+  }).catch(function (error) {
+    byId("reportHint").textContent = "出错了：" + error.message;
+    byId("reportOut").hidden = true;
+  }).then(function () {
+    byId("reportBtn").disabled = false;
+  });
+};
+
+byId("downloadReport").onclick = function () {
+  if (!reportMarkdown) { return; }
+  var blob = new Blob([reportMarkdown], { type: "text/markdown;charset=utf-8" });
+  var url = URL.createObjectURL(blob);
+  var link = document.createElement("a");
+  link.href = url;
+  link.download = "照明设计报告.md";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 };
 
 fetch("/capabilities").then(function (r) { return r.json(); }).then(function (payload) {
