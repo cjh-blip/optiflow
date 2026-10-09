@@ -119,6 +119,17 @@ def test_shell_reflects_user_input(shell_env) -> None:
         context.close()
 
 
+def test_shell_report_block_requires_path(shell_env) -> None:
+    """报告块：不填路径点生成 → 明确提示，不静默。"""
+    context, page = _open_shell(shell_env)
+    try:
+        page.click("#reportBtn")
+        assert "先填" in page.text_content("#reportHint")
+        assert page.locator("#reportOut").is_hidden()
+    finally:
+        context.close()
+
+
 def test_shell_dxf_import_journey(shell_env) -> None:
     """评价点①端到端：选 DXF → 解析 → 完整性检查 → 确认带入参数。"""
     context, page = _open_shell(shell_env)

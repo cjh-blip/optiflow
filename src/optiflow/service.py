@@ -203,6 +203,41 @@ class PlatformService:
             "ir": ir,
         }
 
+    # -------------------------------------------------- 报告组装（评价点④）
+    def assemble_report_pdf(self, report_pdf: str, *,
+                            criteria: Optional[Dict[str, Any]] = None,
+                            criteria_path: Optional[str] = None,
+                            price: Optional[Dict[str, Any]] = None,
+                            project_name: str = "会议室照明设计") -> Dict[str, Any]:
+        """DIALux 报表 PDF（本地路径）→ 结果包 → 报告 Markdown。
+
+        走路径而不是 base64：报表动辄几十 MB，塞进 HTTP 请求体不划算；
+        本接口本来就只绑回环、给本机工具用。criteria_path 同理：判据表 JSON 由服务端读，
+        浏览器无法直接读本地文件。
+        """
+        import json
+
+        from .adapters.dialux.report import extract
+        from .report_assembler import assemble_report
+
+        path = Path(report_pdf)
+        if not path.exists():
+            raise ValueError(f"报表 PDF 不存在：{path}")
+        if criteria is None and criteria_path:
+            cap = Path(criteria_path)
+            if not cap.exists():
+                raise ValueError(f"判据表 JSON 不存在：{cap}")
+            criteria = json.loads(cap.read_text(encoding="utf-8"))
+        package = extract(path, project=project_name)
+        markdown = assemble_report(
+            package, criteria=criteria, price=price, project_name=project_name)
+        return {
+            "ok": True,
+            "source_pdf": str(path),
+            "package_missing": package.get("_missing") or [],
+            "markdown": markdown,
+        }
+
     def pipelines(self) -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []
         for name, factory in sorted(DEFAULT_PIPELINES.items()):

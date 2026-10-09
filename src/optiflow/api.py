@@ -108,7 +108,7 @@ class _Handler(BaseHTTPRequestHandler):
                                   "GET /pipelines", "POST /jobs", "GET /jobs/{id}",
                                   "GET /jobs/{id}/result", "GET /jobs/{id}/artifacts/{key}",
                                   "POST /jobs/{id}/cancel", "POST /run",
-                                  "POST /import-dxf"],
+                                  "POST /import-dxf", "POST /assemble-report"],
                 })
             elif path == "/health":
                 self._send(200, {"status": "ok"})
@@ -177,6 +177,14 @@ class _Handler(BaseHTTPRequestHandler):
                     str(body.get("filename") or "drawing.dxf"),
                     str(body.get("content_base64") or ""),
                     body.get("config") or None))
+            elif path == "/assemble-report":
+                body = self._read_json()
+                self._send(200, self.service.assemble_report_pdf(
+                    str(body.get("report_pdf") or ""),
+                    criteria=body.get("criteria") or None,
+                    criteria_path=str(body.get("criteria_path") or "") or None,
+                    price=body.get("price") or None,
+                    project_name=str(body.get("project_name") or "会议室照明设计")))
             elif path.startswith("/jobs/") and path.endswith("/cancel"):
                 job_id = [p for p in path.split("/") if p][1]
                 self._send(200, self.service.cancel(job_id))
