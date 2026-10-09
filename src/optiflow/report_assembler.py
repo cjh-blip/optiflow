@@ -108,6 +108,37 @@ def _luminaire_block(pkg: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _ugr_point_line(pkg: Dict[str, Any]) -> Optional[str]:
+    """UGR 观察点明细行（需求 1 的报告层落点）：点名 + 索引 + 最不利值 + 评估条件。
+
+    指标表只放最不利值；逐点明细靠这一行落到报告里，否则观察点标识在交付物中无痕。
+    """
+    points = _dig(pkg, ("workplane", "ugr"))
+    if not isinstance(points, list):
+        return None
+    segs: List[str] = []
+    for p in points:
+        if not isinstance(p, dict) or p.get("ugr_max") is None:
+            continue
+        name = " ".join(str(x) for x in (p.get("index"), p.get("point")) if x) or "观察点"
+        seg = f"{name} {_fmt_num(p['ugr_max'])}"
+        cond: List[str] = []
+        if p.get("max_at_deg") is not None:
+            cond.append(f"最不利 {_fmt_num(p['max_at_deg'])}°")
+        if p.get("target") is not None:
+            cond.append(f"目标 ≤ {_fmt_num(p['target'])}")
+        if p.get("range_from") is not None and p.get("range_to") is not None:
+            cond.append(f"观察范围 {_fmt_num(p['range_from'])}°–{_fmt_num(p['range_to'])}°")
+        if p.get("step") is not None:
+            cond.append(f"步进 {_fmt_num(p['step'])}°")
+        if p.get("height_m") is not None:
+            cond.append(f"高度 {_fmt_num(p['height_m'], 'm')}")
+        if cond:
+            seg += "（" + "，".join(cond) + "）"
+        segs.append(seg)
+    return "UGR 观察点：" + "；".join(segs) + "。" if segs else None
+
+
 def _effect_block(pkg: Dict[str, Any], crit: Dict[str, Dict[str, Any]]) -> str:
     lines = [_block_header("2. 照明效果（六项指标）"), ""]
     lines.append("| 指标 | 实测值 | 判据阈值 | 判定 |")
@@ -130,6 +161,10 @@ def _effect_block(pkg: Dict[str, Any], crit: Dict[str, Dict[str, Any]]) -> str:
             f"| {metric['label']} | {_fmt_num(value, metric['unit'])} "
             f"| {threshold or '—'} | {_judge(value, rule.get('op'), rule.get('value'))} |"
         )
+    ugr_line = _ugr_point_line(pkg)
+    if ugr_line:
+        lines.append("")
+        lines.append(ugr_line)
     illum = _dig(pkg, ("workplane", "illuminance")) or {}
     extra_bits = []
     if illum.get("emin_lx") is not None and illum.get("emax_lx") is not None:

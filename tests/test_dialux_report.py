@@ -290,6 +290,58 @@ def test_ugr_panel_text_zh_and_en() -> None:
     assert parse_ugr_panel("这行没有眩光数据") is None
 
 
+def test_ugr_block_keeps_max_when_other_fields_absent() -> None:
+    """ugr_max 唯一必需（要求 3）：目标 / 观察范围 / 索引脉席只置 None，不整块连坐。"""
+    out = parse_report_text("计算点 4 (RUG)\n最大\n9.9\n")
+    assert out["workplane"]["ugr"] == [
+        {
+            "point": "计算点 4 (RUG)",
+            "index": None,
+            "ugr_max": 9.9,
+            "max_at_deg": None,
+            "target": None,
+            "range_from": None,
+            "range_to": None,
+            "step": None,
+            "height_m": None,
+        }
+    ]
+
+
+def test_ugr_index_not_alpha_start_is_still_read() -> None:
+    """索引不是字母开头（纯数字）不再导致整块丢掉。"""
+    out = parse_report_text("计算点 5 (RUG)\n最大眩光值在\n0°\n最大\n13.2\n索引\n7\n")
+    rec = out["workplane"]["ugr"][0]
+    assert rec["index"] == "7" and rec["ugr_max"] == 13.2
+
+
+def test_ugr_points_do_not_bleed_fields_across_blocks() -> None:
+    """前一块缺目标时，不得借用后一块的目标值（多观察点各成一块）。"""
+    a = "计算点 1 (RUG)\n最大眩光值在\n10°\n最大\n8.8\n"
+    b = "计算点 2 (RUG)\n最大眩光值在\n20°\n最大\n15.5\n目标\n≤ 19.0\n"
+    pts = parse_report_text(a + b)["workplane"]["ugr"]
+    assert [p["ugr_max"] for p in pts] == [8.8, 15.5]
+    assert pts[0]["target"] is None and pts[1]["target"] == 19.0
+
+
+def test_ugr_panel_without_target_and_rejects_report_multiline() -> None:
+    """面板只给最大值也照样取；报表式多行文本宁可不取，也不取错点名。"""
+    from optiflow.adapters.dialux.report import parse_ugr_panel
+
+    only_max = parse_ugr_panel("计算点 2 (RUG) 最大 9.9")
+    assert only_max["ugr_max"] == 9.9 and only_max["target"] is None
+
+    report_like = "计算点 1 (RUG)\n最大眩光值在\n240°\n最大\n16.2\n目标\n≤ 19.0"
+    assert parse_ugr_panel(report_like) is None
+
+
+def test_no_ugr_block_stays_null_and_not_missing_entry() -> None:
+    """无眩光块的报表：ugr=None（schema 允许 null），抽取层不记 _missing。"""
+    out = parse_report_text("无眩光数据的三行文本\n随便\n内容")
+    assert out["workplane"]["ugr"] is None
+    assert "workplane.ugr" not in out["_missing"]
+
+
 # ---------------------------------------------------------------- 端到端（真机样本）
 
 @pytest.mark.skipif(not REPORT_PDF, reason="需 DIALUX_REPORT_PDF 指向真机报表 PDF")

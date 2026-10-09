@@ -98,17 +98,29 @@ def test_missing_ugr_marks_unevidenced() -> None:
     assert "无实测值" in text or "未取证" in text
 
 
-def test_ugr_point_list_uses_worst_case() -> None:
-    """UGR 点记录列表 → 指标表取最不利值判定；单点明细不进指标表。"""
+def test_ugr_point_list_worst_case_and_point_detail() -> None:
+    """指标表取最不利值判定；逐点标识与评估条件落到报告里（需求 1 的报告层落点）。"""
     pkg = copy.deepcopy(PACKAGE)
     pkg["workplane"]["ugr"] = [
-        {"point": "计算点 1 (RUG)", "index": "CP1", "ugr_max": 17.4, "target": 19.0},
+        {"point": "计算点 1 (RUG)", "index": "CP1", "ugr_max": 17.4, "target": 19.0,
+         "max_at_deg": 135.0, "range_from": 0.0, "range_to": 360.0, "step": 15.0,
+         "height_m": 1.2},
         {"point": "计算点 2 (RUG)", "index": "CP2", "ugr_max": 12.1, "target": 19.0},
     ]
     text = assemble_report(pkg, criteria=CRITERIA)
-    assert "17.4" in text
-    assert "12.1" not in text
+    assert "| 统一眩光值 UGR | 17.4 | ≤ 19 | 达标 |" in text  # 最不利值参与判定
+    assert "UGR 观察点：" in text
+    assert "CP1 计算点 1 (RUG) 17.4" in text
+    assert "CP2 计算点 2 (RUG) 12.1" in text
     assert "未取证" in text  # 渲染图/价格等其他缺项仍正常标注
+
+
+def test_ugr_absent_marks_unevidenced_without_point_line() -> None:
+    pkg = copy.deepcopy(PACKAGE)
+    pkg["workplane"]["ugr"] = None
+    text = assemble_report(pkg, criteria=CRITERIA)
+    assert "UGR 观察点：" not in text
+    assert "UGR 实测值（报表未含眩光计算页）" in text
 
 
 def test_markdown_to_docx_with_borders(tmp_path) -> None:
