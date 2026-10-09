@@ -98,6 +98,26 @@ def test_missing_ugr_marks_unevidenced() -> None:
     assert "无实测值" in text or "未取证" in text
 
 
+def test_markdown_to_docx_with_borders(tmp_path) -> None:
+    """Markdown → DOCX（pandoc）：产出文件，且每个表格都补上了边框。"""
+    import pytest
+
+    pytest.importorskip("pypandoc")
+    from optiflow.report_assembler import markdown_to_docx
+
+    md = assemble_report(PACKAGE, criteria=CRITERIA, generated_on="2026-10-09")
+    out = markdown_to_docx(md, tmp_path / "report.docx")
+    assert out.exists() and out.stat().st_size > 0
+
+    import docx
+    from docx.oxml.ns import qn
+
+    d = docx.Document(str(out))
+    assert d.tables, "报告应至少有一个表"
+    for table in d.tables:
+        assert table._tbl.tblPr.find(qn("w:tblBorders")) is not None, "每个表都应有边框"
+
+
 # ============================================================ HTTP 层
 
 

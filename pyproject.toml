@@ -12,6 +12,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# 报告 DOCX 导出（pypandoc_binary 自带 pandoc 二进制；缺了它只能出 Markdown）
+docx-report = ["pypandoc_binary>=1.11"]
 # xlsx.py 里的 pandas 是惰性 import 的可选通路（当前平台与测试都不走它），故不列为硬依赖
 xlsx = ["pandas>=2.2", "openpyxl>=3.1"]
 
@@ -25,7 +27,8 @@ where = ["src"]
 [tool.setuptools.package-data]
 # 壳的页面必须随包走：打包时漏了它，用户打开就是一个 FileNotFoundError
 # spec/*.json：validator 的 schema（包内寻址，见 PROGRESS.md「跨包耦合收敛」）
-optiflow = ["web/*.html", "spec/*.json"]
+# assets/*.docx：报告导出的中文 reference 模板（缺了它 pandoc 会退回英文字体）
+optiflow = ["web/*.html", "spec/*.json", "assets/*.docx"]
 
 [tool.pytest.ini_options]
 # "src"：平台包 optiflow（与 P0 一致）

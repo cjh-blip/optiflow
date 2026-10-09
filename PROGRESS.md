@@ -789,10 +789,11 @@ $ POST /run → 15.5 s，ok=True
 
 | 文件 | 内容 |
 |---|---|
-| `src/optiflow/report_assembler.py` | 7 块组装（选型 / 六指标 / 渲染 / 国标对标 / 价格 / 节能 / 未取证）＋ CLI |
+| `src/optiflow/report_assembler.py` | 7 块组装（选型 / 六指标 / 渲染 / 国标对标 / 价格 / 节能 / 未取证）＋ CLI；`markdown_to_docx()` 导出 Word |
+| `src/optiflow/assets/reference_zh.docx` | pandoc 中文 reference 模板（宋体/黑体、表格 9pt、页边距） |
 | `service.py` + `api.py` | `POST /assemble-report`：报表 PDF（路径）＋判据表（路径）→ 报告 Markdown |
 | `web/index.html` | 壳第 4 块「生成报告」：填路径 → 预览 → 下载 md |
-| `tests/test_report_assembler.py` (7) ＋ 浏览器 +1 | 七块齐全 / 数值逐值一致 / 重跑不漂移 / 缺项标注 / HTTP 400 |
+| `tests/test_report_assembler.py` (8) ＋ 浏览器 +1 | 七块齐全 / 数值逐值一致 / 重跑不漂移 / 缺项标注 / HTTP 400 / DOCX 边框 |
 
 ## 关键设计决定
 
@@ -800,19 +801,23 @@ $ POST /run → 15.5 s，ok=True
 2. 六项指标口径固定（照度/UGR/U₀/Ra/CCT/LPD），判定用判据表阈值；CCT 标准未规定 → 标「标准未规定」。
 3. 报表走**路径**不走 base64（几十 MB 不塞 HTTP 体）；判据表由服务端读（浏览器读不了本地文件）。
 4. 渲染图/价格未到时显式标注（对齐 A4-05）。
+5. **DOCX 导出用 pandoc（pypandoc_binary）＋中文 reference 模板**；表格边框用直接格式化后处理
+   （样式继承在部分渲染器里不稳）。（模板经验：pandoc 默认字体不含中文，实测需设 eastAsia 字体。）
 
 ## 行为验证（实测）
 
 ```
 $ python -m pytest -q
-345 passed, 3 skipped
+346 passed, 3 skipped in 58.12s
 
 真实样本（rot90 29 页 PDF ＋ 判据表 v1）：
 六项指标：714 lx / UGR 未取证 / 0.66 / 100 / 3000 K / 8.7 W/m²
 判定：照度达标；U₀ 达标；Ra 达标；LPD 未达标（8.7 > 目标值 6.5，如实呈现）
+
+DOCX：pandoc 3.9＋中文模板转出，表格三张均带边框（Quick Look 目视复核）
 ```
 
 ## 剩余缺口
 
-- DOCX/PPT 导出未做（Markdown 是主路径第一步）；渲染图待真机单点。
+- PPT 导出未做（PPT 两条验收 A4-06/09 待接）；渲染图待真机单点。
 - LPD 超目标值（8.7 > 6.5）属设计口径问题（目标值/现行值两套口径），报告如实呈现，待团队确认口径。
