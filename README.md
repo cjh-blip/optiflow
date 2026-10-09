@@ -18,7 +18,14 @@
 
 ## 快速开始
 
-实测环境：`D:\dev\anaconda3\python.exe`（Python 3.11.15 + pydantic 2.12）。本机 `python3` 指向 3.14，无依赖，勿用。
+两端环境对照（命令只差解释器路径与 PYTHONPATH 注入方式，下文示例用 Windows 写法）：
+
+| 端 | 解释器 | PYTHONPATH 注入 |
+|---|---|---|
+| Windows | `D:\dev\anaconda3\python.exe` | PowerShell：`$env:PYTHONPATH = "src"` |
+| Mac | `~/anaconda3/envs/workshop/bin/python3` | `PYTHONPATH=src` 前缀；一键启动：双击 `启动光枢.command` |
+
+实测环境：Windows 侧 Python 3.11.15 + pydantic 2.12；Mac 侧 Python 3.12（workshop 环境）。本机 `python3` 可能无依赖，勿用。
 
 ```powershell
 # 依赖（pydantic / ezdxf / jsonschema / pytest）
@@ -235,17 +242,25 @@ STF 的判卷标准是**迁移等价性**，参照物在本仓冻结：
    `LumenPlannerAdapter` 与 `DialuxAdapter` 都声明 `kind="layout"`（处理同一类任务、深度不同），
    所以直接用它会有「换一下注册顺序就换个通道」的坑（实测踩过）。
    **要跑多步流水线请走 `Orchestrator`**：它按 `kind + tags` 选唯一的适配器，选不唯一就报错。
+10. **STF 默认写 GBK/CP936（2026-10-08）**：DIALux evo 的 STF 导入器按 CP936 读文本，写 UTF-8
+    会让中文房名变乱码（真机回归结论：GBK 写出即解）。`write_stf()` 默认已改，CLI 加 `--encoding`
+    可覆盖；GBK 表外字符会抛 `UnicodeEncodeError`（strict），不静默丢字。
+11. **凹房间支撑（2026-10-08）**：遮挡判定用「线段与房间边求交」（较采样法快 27×）；
+    排布仍按外接矩形网格，轮廓外的位置会被剔除并报警（与导出保持一致，有跨步骤护栏兜底）。
 
 ## 阶段状态
 
 | 阶段 | 状态 |
 |---|---|
 | P0 骨架（IR + 契约 + 假适配器端到端） | ✅ 完成（11 条测试） |
-| P1 DIALux 适配器 | 🔶 **文件层完成**（DXF 解析 + STF 导出 + DialuxAdapter，179 条测试全绿）；真机 UI 与落灯未接 |
-| P2 算法层（光通量法） | ✅ 完成（利用系数法布灯 + 逐点法均匀度 + 求解器） |
-| 编排层 | ✅ 完成（任务分解 / 选能力 / 拼流水线 / 校验结果，260 条测试全绿） |
+| P1 DIALux 适配器 | ✅ 文件层 + **真机链已打通**（DXF 解析 / STF 导出 / DialuxAdapter；SOP v2 冻结：714 lx / U0 0.68；机读通道＝报表 PDF→文本层） |
+| P2 算法层（光通量法） | ✅ 完成（利用系数法布灯 + 逐点法均匀度 + 求解器；支持任意多边形房间轮廓） |
+| 编排层 | ✅ 完成（任务分解 / 选能力 / 拼流水线 / 校验结果） |
 | 对外接口（HTTP + MCP） | ✅ 完成（服务门面 + HTTP 接口 + MCP server） |
-| P5 极简壳 → APP | ✅ 完成（单页「说目标 → 出结果」） |
-| P1② DIALux 真机 UI 与落灯 | ⏸ 待用户授权（会真实启动并操作 DIALux） |
+| P5 极简壳 → APP | ✅ 完成（单页「导入 CAD → 说目标 → 出结果 → 下载 STF」） |
+| 结果包抽取器（报表 PDF → schema v1） | ✅ 完成（2 页 / 29 页版全字段，含逐灯坐标；UGR 字段待样本） |
+| DXF 导入（评价点①） | ✅ 完成（`/import-dxf` + 壳上完整性检查 + 确认带入） |
+| 报告组装器（评价点④） | 📋 下一步 |
+| P1② DIALux 真机 UI 与落灯 | ⏸ 已部分落地（Windows 侧坐标链 / 换灯 / 家具探路；按单点短跑安排） |
 | P3 Creo 适配器 | ⛔ 需装机（本机未装 Creo/PTC） |
 | P4 Zemax 适配器（ZPL 降级路） | ⛔ 需装机（本机未装 Zemax） |
