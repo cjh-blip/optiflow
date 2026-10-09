@@ -22,10 +22,13 @@
   9 位；schema 定稿文档记的是 8 位，原值待 Windows 侧在 DIALux 里核。
 - **UGR**：报表勾选眩光计算后，「计算点 n (RUG)」块可取（2026-10-08 UGR 样本实测）→
   `workplane.ugr` 为**点记录列表**（point / index / ugr_max / max_at_deg / target /
-  range_from / range_to / step / height_m），多观察点就绪、不压成标量；未勾选眩光
-  计算的报表为 null（schema v1 §三允许 null，报告层标未取证）。逐点网格仍只有
-  等值线矢量图 → 固定 None。UIA 面板回传的单点文本走 :func:`parse_ugr_panel`
-  （中/英两形态，形态锚定 Windows 侧 test_ugr_task）。
+  range_from / range_to / step / height_m），多观察点就绪、不压成标量；**`ugr_max`
+  是唯一必需值**，其余字段缺一个只置 None（块锚点只有「点名行 + 最大」两处）。
+  未勾选眩光计算的报表为 null（schema v1 §三允许 null，报告层标未取证；抽取层
+  不记 `_missing`）。逐点网格仍只有等值线矢量图 → 固定 None。UIA 面板回传的单点
+  文本走 :func:`parse_ugr_panel`（中/英两形态，锚定 Windows 侧 test_ugr_task）。
+  *已知边界*：报表块锚点写的是中文报表文案（英文界面导出的报表未取，需样本再补）；
+  面板路径按单点单行文本处理。
 
 数值一律从文本层抽，不手抄；抽不到的字段置 None 并记入 `_missing`。
 """
@@ -300,28 +303,29 @@ def _rooms(text: str, missing: List[str]) -> List[Dict[str, Any]]:
 
 # ---------------------------------------------------------------- 文本路：UGR
 
-# 报表「计算点 n (RUG)」眩光块（DIALux evo 14 中文报表，2026-10-08 样本实测形态）：
-# 标签行 → 最大眩光值在(角度) → 最大 → 目标 → 观察范围 → 间距 → 高度 → 索引
-_UGR_BLOCK = re.compile(
+# 报表「计算点 n (RUG)」眩光块的**锚点**（DIALux evo 14 中文报表，2026-10-08 样本实测形态）：
+# 点名行 → [最大眩光值在(角度)] → 最大(值)。只有这两处是必需，其余字段各自独立抽：
+# 缺一个只丢一个字段，ugr_max 仍是唯一必需值（Windows 侧 2026-10-09 要求 3）。
+_UGR_ANCHOR = re.compile(
     rf"(?P<point>[^\n]*\(RUG\))\s*"
-    rf"最大眩光值在\s*(?P<at>{_NUM})°\s*"
-    rf"最大\s*(?P<max>{_NUM})\s*"
-    rf"目标\s*(?:≤|<=|<)?\s*(?P<target>{_NUM})\s*"
-    rf"观察范围\s*(?P<rf>{_NUM})°\s*-\s*(?P<rt>{_NUM})°\s*"
-    rf"间距\s*(?P<step>{_NUM})°\s*"
-    rf"高度\s*(?P<h>{_NUM})\s*m\s*"
-    rf"索引\s*(?P<idx>[A-Za-z]\w*)"
+    rf"(?:最大眩光值在\s*(?P<at>{_NUM})°\s*)?"
+    rf"最大\s*(?P<max>{_NUM})"
 )
+_UGR_RANGE = re.compile(rf"观察范围\s*({_NUM})°\s*-\s*({_NUM})°")
 
-# UIA 面板回传文本（单点、单行），中/英两形态由 Windows 侧 test_ugr_task 锚定：
+# UIA 面板回传文本（单点），中/英两形态由 Windows 侧 test_ugr_task 锚定：
 #   中：计算点 1 (RUG) 最大 16.2 目标 <= 19.0
 #   英：Calculation point Maximum 12.7 target 19
+# 以「计算点 / Calculation point」关键字起首，避开把报表多行文本里的数字串误当点名；
+# 目标可缺（缺则 None）。
 _UGR_PANEL = (
     re.compile(
-        rf"(?P<point>\S[^\n]*?)\s*最大\s*(?P<max>{_NUM})\s*目标\s*(?:≤|<=|<)?\s*(?P<target>{_NUM})"
+        rf"(?P<point>(?:计算点|Calculation point)[^\n]{{0,30}}?)\s*最大\s*(?P<max>{_NUM})"
+        rf"\s*(?:目标\s*(?:≤|<=|<)?\s*(?P<target>{_NUM}))?"
     ),
     re.compile(
-        rf"(?P<point>\S[^\n]*?)\s*Maximum\s*(?P<max>{_NUM})\s*[Tt]arget\s*(?:≤|<=|<)?\s*(?P<target>{_NUM})"
+        rf"(?P<point>(?:计算点|Calculation point)[^\n]{{0,30}}?)\s*Maximum\s*(?P<max>{_NUM})"
+        rf"\s*(?:[Tt]arget\s*(?:≤|<=|<)?\s*(?P<target>{_NUM}))?"
     ),
 )
 
@@ -353,22 +357,33 @@ def _ugr_record(
 
 
 def _ugr_points(text: str) -> Optional[List[Dict[str, Any]]]:
-    """报表全文 → UGR 点记录列表；无眩光块返回 None（schema 允许 null）。"""
-    points = [
-        _ugr_record(
-            m.group("point").strip(),
-            m.group("max"),
-            index=m.group("idx"),
-            at=m.group("at"),
-            target=m.group("target"),
-            range_from=m.group("rf"),
-            range_to=m.group("rt"),
-            step=m.group("step"),
-            height=m.group("h"),
+    """报表全文 → UGR 点记录列表；无眩光块返回 None（schema v1 §三允许 null）。
+
+    每块范围止于下一个 `(RUG)` 锚点，多观察点之间不串字段；块内除 `ugr_max` 外
+    都可缺（缺则 None），不整块连坐。
+    """
+    anchors = list(_UGR_ANCHOR.finditer(text))
+    if not anchors:
+        return None
+    out: List[Dict[str, Any]] = []
+    for i, m in enumerate(anchors):
+        end = anchors[i + 1].start() if i + 1 < len(anchors) else len(text)
+        region = text[m.end():end]
+        rng = _UGR_RANGE.search(region)
+        out.append(
+            _ugr_record(
+                m.group("point").strip(),
+                m.group("max"),
+                index=_first(r"索引\s*(\S+)", region),
+                at=m.group("at"),
+                target=_first(rf"目标\s*(?:≤|<=|<)?\s*({_NUM})", region),
+                range_from=rng.group(1) if rng else None,
+                range_to=rng.group(2) if rng else None,
+                step=_first(rf"间距\s*({_NUM})°", region),
+                height=_first(rf"高度\s*({_NUM})\s*m", region),
+            )
         )
-        for m in _UGR_BLOCK.finditer(text)
-    ]
-    return points or None
+    return out
 
 
 def parse_ugr_panel(text: str) -> Optional[Dict[str, Any]]:
