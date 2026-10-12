@@ -260,9 +260,19 @@ STF 的判卷标准是**迁移等价性**，参照物在本仓冻结：
 | 编排层 | ✅ 完成（任务分解 / 选能力 / 拼流水线 / 校验结果） |
 | 对外接口（HTTP + MCP） | ✅ 完成（服务门面 + HTTP 接口 + MCP server） |
 | P5 极简壳 → APP | ✅ 完成（单页「导入 CAD → 说目标 → 出结果 → 下载 STF」） |
-| 结果包抽取器（报表 PDF → schema v1） | ✅ 完成（2 页 / 29 页版全字段，含逐灯坐标；UGR 已落地：点记录列表，10-08 真机样本验证 16.2/CP1） |
+| 结果包抽取器（报表 PDF → schema v1） | ✅ 完成（2 页 / 29 页 / 31 页版全字段，含逐灯坐标；UGR 已落地：点记录列表，多观察点就绪） |
 | DXF 导入（评价点①） | ✅ 完成（`/import-dxf` + 壳上完整性检查 + 确认带入） |
 | 报告组装器（评价点④） | ✅ Markdown ＋ DOCX 主路径完成（7 块；PPT 导出待接） |
-| P1② DIALux 真机 UI 与落灯 | ⏸ 已部分落地（Windows 侧坐标链 / 换灯 / 家具探路；按单点短跑安排） |
+| P1② DIALux 真机 UI 与落灯 | ✅ **已跑到底**（2026-10-11 同源链：房间/家具/灯具/计算/31 页报表，逐位对账成立；灯具以阵列形态建成） |
 | P3 Creo 适配器 | ⛔ 需装机（本机未装 Creo/PTC） |
 | P4 Zemax 适配器（ZPL 降级路） | ⛔ 需装机（本机未装 Zemax） |
+
+---
+
+## 参考与许可
+
+- **工作台架构参照 [BetterGI](https://github.com/babalae/better-genshin-impact)（better-genshin-impact，GPL-3.0）**：借鉴其
+  任务分层与触发器调度的**架构与设计**（实时触发器 / 独立任务 / 任务编排），**未复制其源码**；
+  相关模块在文件头逐处标注了对应关系（如 `workbench/dispatcher.py`、`tasks/dialux/*_trigger.py`、`executor/uia/driver.py`）。
+- 本项目自身代码为 **MIT**（见 `LICENSE`）；引用第三方项目的名称与链接仅为出处标注。
+- **借用范围比对（2026-10-12，只读）**：对 `ITaskTrigger` / `TaskTriggerDispatcher` 与我方 `Trigger` / `Dispatcher` 逐处比对——字段为同义映射且已逐处标注，方法分解与机制均不同（我方不截图、不跟踪游戏窗口、无掩码窗口/GC 调度）；**未见表达级／代码级复制**。比对范围与结论由维护者留档。
