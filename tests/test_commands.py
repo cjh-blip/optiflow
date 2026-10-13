@@ -230,3 +230,37 @@ def test_report_metrics_command():
     assert r["count"] == 6
     assert r["rows"][1]["label"] == "统一眩光值 UGR"
     assert r["rows"][1]["valueText"] in ("未取证",) or isinstance(r["rows"][1]["value"], float)
+
+
+# --------------------------------------------------- 外部注册（配套壳把自己那几步放进同一张表）
+def test_register_external_command():
+    from optiflow.commands import Command, CommandError, Param, register
+
+    def handler(*, path: str) -> dict:
+        return {"echo": path}
+
+    cmd = Command(id="test.echo", handler=handler, group="test",
+                  description="测试用", returns="{echo}",
+                  params=(Param("path", "path", help="随便一个路径"),))
+    register(cmd)
+    try:
+        assert "test.echo" in {c["id"] for c in list_commands()}
+        assert call("test.echo", {"path": "/tmp/x"}) == {"echo": "/tmp/x"}
+        # 默认不许覆盖
+        try:
+            register(cmd)
+            raise AssertionError("重复注册竟然成功了")
+        except CommandError as e:
+            assert "已存在" in str(e)
+        # 显式 replace 才能覆盖
+        register(Command(id="test.echo", handler=lambda **kw: {"replaced": True},
+                         description="覆盖", returns="{}"), replace=True)
+        assert call("test.echo", {}) == {"replaced": True}
+    finally:
+        COMMANDS.pop("test.echo", None)
+
+
+def test_registered_command_visible_in_cli_list():
+    out = _cli("list")
+    assert out.returncode == 0
+    assert "plan.summary" in [c["id"] for c in json.loads(out.stdout)]

@@ -324,9 +324,26 @@ if len(COMMANDS) != len(_COMMANDS):  # 注册期就把重复 id 拦下来，别�
     raise RuntimeError("命令 id 重复：" + ", ".join(sorted(COMMANDS)))
 
 
+def register(command: Command, *, replace: bool = False) -> Command:
+    """外部（应用侧壳）注册动作 —— 让配套壳把自己那几步也放进**同一张表**。
+
+    为什么要有它：平台不该依赖某个壳（依赖方向是 app → 平台）；但"动作只定义一次"要求
+    壳的动作也进这张表。于是平台只给接口，壳自己注册：
+
+        from optiflow.commands import Command, Param, register
+        register(Command(id="dialux.parse", handler=..., group="dialux", ...))
+
+    默认**不允许覆盖**已有 id（防手滑把平台动作换了实现）；要换实现显式 `replace=True`。
+    """
+    if not replace and command.id in COMMANDS:
+        raise CommandError(f"动作 {command.id} 已存在；要覆盖请显式 replace=True")
+    COMMANDS[command.id] = command
+    return command
+
+
 # --------------------------------------------------------------------- 查询
 def list_commands() -> Sequence[Dict[str, Any]]:
-    """全部动作的规格（CLI / agent / 文档生成都吃它）。"""
+    """全部动作的规格（CLI / agent / 文档生成 / 外部壳都吃它）。含运行时注册进来的。"""
     return [COMMANDS[k].spec() for k in sorted(COMMANDS)]
 
 
