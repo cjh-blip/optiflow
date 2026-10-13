@@ -79,6 +79,22 @@ call("plan.summary", {"dxf": "...", "config": "..."})   # 返回 dict
 现状（2026-10-13）：Hana App 三条路由、独立桌面版三端点与浏览器侧指标板、OptiFlow 的 `/metrics` 类响应都已带 `state`/`evidence`；断言钉在
 `optiflow-workbench-dev/route-integration.mjs`（三条路由各一条）。
 
+## 外部注册（`register()`）
+
+平台**不依赖任何壳**（依赖方向 app → 平台），但"动作只定义一次"要求壳把自己的步骤也放进同一张表。于是平台只给口子：
+
+```python
+from optiflow.commands import Command, Param, register
+
+register(Command(id="dialux.parse", handler=..., group="dialux",
+                 description="…", returns="…",
+                 params=(Param("dxf", "path"), Param("out", "path"))))
+```
+
+- 登记后 `list_commands()` / CLI / `GET /commands` / 两侧壳**同一张表**都能看到并派发；
+- 默认**不许覆盖**已有 id（防手滑换实现），要换显式 `replace=True`；
+- 用途实例（2026-10-13）：Windows 侧 `optiflow-app` 用它在启动时登记真机链五动作（见 `docs` 与交接区）。
+
 ## 待收编（有意留白，不代表遗漏）
 
 | 动作 | 为什么还没进来 | 收编前提 |

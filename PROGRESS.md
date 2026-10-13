@@ -944,3 +944,13 @@ UGR 观察点：CP1 计算点 1 (RUG) 16.2（最不利 240°，目标 ≤ 19，�
   另加一层「报告渲染与数据一致」。两组（带/不带判据表）均全同。
 - 测试：+5 项（metrics_rows 形状与顺序、无判据措辞回归钉、report.metrics 动作）；全量 **390 passed / 3 skipped**。
 - 消费方：独立桌面版的 `app/tk_shell.py`（三段 Tk 视图原型，无头 smoke 三段全通）。
+
+
+## 平台期补记（2026-10-13 傍晚）：外部注册接口 ＋ GitHub 治理
+
+- `commands.register()`：外部（应用侧壳）可注册动作，依赖方向仍是 app → 平台；默认不许覆盖已有 id（显式 `replace=True`）。
+  用途：Windows 侧真机链五动作将用它登记进同一张表。测试 +2（注册可见/重复拦截/replace/CLI 列表）。
+- `scripts/pre_push_check.sh`：推送门（关键词扫：本机路径硬拦、项目名公开仓硬拦 → 全量测试 → 跨语言断言 → ruff 若可用）。
+  坑两处已修并记档：脚本自身带模式串会自指命中（排除自身）；判退出码别接管道（`if 脚本 | tail` 判的是 tail）。
+- GitHub 治理（cjh 定）：通用能力公开 / 带项目细节的仓一侕私有；`optiflow-desktop`、`optiflow-workbench`、`optiflow-app` 为私有仓。
+  两仓与远端曾实质分叉（本地 `master` / 远端 `main`，`optiflow` 领先 15 落后 25、`dialux-compiler` 领先 35 落后 9）→ **开分支必须从 `origin/main` 拉**。
