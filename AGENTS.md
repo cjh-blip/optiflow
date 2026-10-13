@@ -49,3 +49,18 @@
 - 本仓历史：P0 骨架期由 AI 助手执笔，P1 起转入 DSH/多体协作。
 - 权限边界与体系沿革见 `docs/agent-spec.md`；本文件是协作体系的唯一真身。
 
+
+## 推送门（公开仓，2026-10-13 起）
+
+推之前必须过：`bash scripts/pre_push_check.sh`（① 关键词扫：本机路径硬拦、项目名公开仓硬拦 ② 全量测试 ③ 跨语言断言 ④ ruff 若可用）。
+门不过就不推。**首推教训**：本机路径与项目名曾提交进历史，改工作区无用 —— 必须改历史才干净。
+
+## 目录关系（别搞混）
+
+- `src/optiflow/` = 平台本体（IR / 校验 / 适配器 / 报告 / 摘要 / 动作注册表 `commands.py`）。
+- `src/{core,executor,planner,tasks,validator}` = 从 **dialux-compiler** 搬来的 **import 闭包副本**（历史包袱，见 `BLOCKED.md` B-2）。
+  **已与上游分叉**（`driver_plan.py` / `planner/core.py` / `validator/__init__.py` 内容均已不同，且缺 `executor/uia/furniture.py`）：
+  - 本副本**冻结，不再新增**；
+  - **真机链的真相源在 `dialux-compiler` 仓**（UIA 驱动、STF 导出、抽数脚本都在那边，只在 Windows 上跑）；
+  - 收编方向：把真机链登记成动作接进 `commands.py`（见 `docs/action-contract.md` 的「待收编」），**不要**拿本副本当基准反向同步。
+- 界面两条线（Hana App 版 / 独立桌面版）是**私有仓**，不在本仓；它们共用的 HTML 面板与 `metrics.js` 口径在 App 仓，与本仓的共同接口是动作注册表。
