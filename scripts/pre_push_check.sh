@@ -2,6 +2,7 @@
 # 推送门 —— 推之前必须过这三件。推不过就别推。
 #
 # 用法：bash scripts/pre_push_check.sh [基线ref，默认 origin/main]
+# 词表已外置（2026-10-27）：读仓外文件，仓里不留任何个人/项目关键词
 # 环境：GUANGSHU_PY（默认 workshop 解释器）、跨语言断言需要 GUANGSHU_METRICS_JS / GUANGSHU_PKG（可选 GUANGSHU_CRIT）
 #
 # 为什么要有它：2026-10-13 首次推送时，本机路径与项目名已经**提交进历史**（改工作区没用，得改历史才干净）。
@@ -25,15 +26,15 @@ if ! git rev-parse --verify "$BASE" >/dev/null 2>&1; then
   echo "  ⚠ 基线 $BASE 不存在 → 改为全树扫（首次推送前就是这样）"
   SCAN_CMD="git grep -InE"
   SCAN_ARGS=""   # 交给 git grep 自己找
-  hits_hard=$(git grep -InE "$HARD_KW" 2>/dev/null | wc -l | tr -d ' ')
-  hits_soft=$(git grep -InE "$SOFT_KW" 2>/dev/null | wc -l | tr -d ' ')
+  hits_hard=$(git grep -InE "$HARD_KW" -- . ':!scripts/pre_push_check.sh' 2>/dev/null | wc -l | tr -d ' ')
+  hits_soft=$(git grep -InE "$SOFT_KW" -- . ':!scripts/pre_push_check.sh' 2>/dev/null | wc -l | tr -d ' ')
 else
-  hits_hard=$(git diff "$BASE"..HEAD 2>/dev/null | grep -E '^\+' | grep -Ec "$HARD_KW" || true)
-  hits_soft=$(git diff "$BASE"..HEAD 2>/dev/null | grep -E '^\+' | grep -Ec "$SOFT_KW" || true)
+  hits_hard=$(git diff "$BASE"..HEAD -- . ':!scripts/pre_push_check.sh' 2>/dev/null | grep -E '^\+' | grep -Ec "$HARD_KW" || true)
+  hits_soft=$(git diff "$BASE"..HEAD -- . ':!scripts/pre_push_check.sh' 2>/dev/null | grep -E '^\+' | grep -Ec "$SOFT_KW" || true)
 fi
 if [ "${hits_hard:-0}" -gt 0 ]; then
   echo "  ✗ 本机路径命中 $hits_hard 行（任何仓都不该留）"
-  git grep -InE "$HARD_KW" | head -8 | cut -c1-150 | sed 's/^/    /'
+  git grep -InE "$HARD_KW" -- . ':!scripts/pre_push_check.sh' | head -8 | cut -c1-150 | sed 's/^/    /'
   FAIL=1
 else
   echo "  ✓ 本机路径 0 命中"
