@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
+from .commands import call as call_command, list_commands
 from .service import PlatformService, build_default_service
 from .shell import content_type_for, page_html
 
@@ -105,7 +106,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(200, {
                     "name": "光枢 / OptiFlow",
                     "endpoints": ["GET /  (单页壳)", "GET /health", "GET /capabilities",
-                                  "GET /pipelines", "POST /jobs", "GET /jobs/{id}",
+                                  "GET /commands", "GET /pipelines", "POST /jobs", "GET /jobs/{id}",
                                   "GET /jobs/{id}/result", "GET /jobs/{id}/artifacts/{key}",
                                   "POST /jobs/{id}/cancel", "POST /run",
                                   "POST /import-dxf", "POST /assemble-report"],
@@ -113,7 +114,11 @@ class _Handler(BaseHTTPRequestHandler):
             elif path == "/health":
                 self._send(200, {"status": "ok"})
             elif path == "/capabilities":
-                self._send(200, {"capabilities": self.service.capabilities()})
+                # capabilities 里带上动作表：capabilities 声明从此由表生成，不再手写第二份
+                self._send(200, {"capabilities": self.service.capabilities(),
+                                 "commands": list_commands()})
+            elif path == "/commands":
+                self._send(200, {"commands": list_commands()})
             elif path == "/pipelines":
                 self._send(200, {"pipelines": self.service.pipelines()})
             elif path.startswith("/jobs/"):
@@ -122,6 +127,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send(404, {"error": f"没有这个路径：{path}"})
         except KeyError as exc:
             self._send(404, {"error": str(exc)})
+        except ValueError as exc:      # 含 CommandError（注册表参数错）→ 400
+            self._send(400, {"error": str(exc)})
         except RuntimeError as exc:
             self._send(409, {"error": str(exc)})
         except Exception as exc:  # noqa: BLE001 - 任何异常都要变成响应，不能让连接挂住
@@ -173,26 +180,27 @@ class _Handler(BaseHTTPRequestHandler):
                     str(body.get("pipeline", "")), body.get("task") or {}))
             elif path == "/import-dxf":
                 body = self._read_json()
-                self._send(200, self.service.import_dxf(
-                    str(body.get("filename") or "drawing.dxf"),
-                    str(body.get("content_base64") or ""),
-                    body.get("config") or None))
+                # 走动作注册表（与 CLI / agent 同一条路）。HTTP 契约不变：入参出参形状照旧
+                self._send(200, call_command("service.import_dxf_b64", {
+                    "filename": str(body.get("filename") or "drawing.dxf"),
+                    "content_base64": str(body.get("content_base64") or ""),
+                    "config": body.get("config") or None}))
             elif path == "/assemble-report":
                 body = self._read_json()
-                self._send(200, self.service.assemble_report_pdf(
-                    str(body.get("report_pdf") or ""),
-                    criteria=body.get("criteria") or None,
-                    criteria_path=str(body.get("criteria_path") or "") or None,
-                    price=body.get("price") or None,
-                    render_images=body.get("images") or None,
-                    project_name=str(body.get("project_name") or "会议室照明设计")))
+                self._send(200, call_command("report.assemble_from_pdf", {
+                    "report_pdf": str(body.get("report_pdf") or ""),
+                    "criteria": body.get("criteria") or None,
+                    "criteria_path": str(body.get("criteria_path") or "") or None,
+                    "price": body.get("price") or None,
+                    "images": body.get("images") or None,
+                    "project_name": str(body.get("project_name") or "会议室照明设计")}))
             elif path.startswith("/jobs/") and path.endswith("/cancel"):
                 job_id = [p for p in path.split("/") if p][1]
                 self._send(200, self.service.cancel(job_id))
             else:
                 self._drain_body(int(self.headers.get("Content-Length") or 0))
                 self._send(404, {"error": f"没有这个路径：{path}"})
-        except ValueError as exc:
+        except ValueError as exc:      # 含 CommandError（注册表参数错）→ 400
             self._send(400, {"error": str(exc)})
         except KeyError as exc:
             self._send(404, {"error": str(exc)})

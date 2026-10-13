@@ -893,3 +893,54 @@ UGR 观察点：CP1 计算点 1 (RUG) 16.2（最不利 240°，目标 ≤ 19，�
 
 - 未提交未推送（等 cjh 确认）。
 - 英文报表块形态、Windows 侧 `ugr_result.json` 接入姿势仍待样本 / 回件。
+
+---
+
+# 交付期（2026-10-12）：报告图注支持（**未提交**）
+
+- `report_assembler._render_block` 支持 `{path, caption}` 图注形式（字符串形式仍兼容），交付件里能标清「DIALux 报表页视图 ≠ 光线追踪渲染图」；`assemble_report` 的 `render_images` 相应放宽为 `Sequence[Any]`。
+- 测试：`tests/test_report_assembler.py` +1（图注与兼容性）。
+- **状态：已提交**（`b675986`，2026-10-13 随交付后补提交）；未推送。
+- 验证口径（诚实）：全量基线 **358 passed / 3 skipped**（本改动之前跑过）；本改动后只跑了相关两个文件 = **33 passed / 1 skipped**，全量未重跑。
+
+---
+
+# 平台期（2026-10-12）：图纸摘要收敛到平台层（**未提交**）
+
+- 新增 `src/optiflow/plan_summary.py`：`summarize_plan()` ＋ `python -m optiflow.plan_summary` CLI。
+  把原先散在各壳里的「摘要四数 ＋ 六项完整性检查 ＋ 校验分桶」收进平台，两个宿主（Hana App 走子进程、
+  独立桌面版走进程内 import）共用一份实现。顺带消掉 `PYTHONPATH=src:.` 那个坑：
+  模块自己把仓库根与 `src` 放进 `sys.path`，调用方只给 `PYTHONPATH=src` 就能跑。
+- 测试：`tests/test_plan_summary.py` 8 项（四数、kind/shape 双维度分桶、六项检查逐条、无灯具图边界、
+  挂高缺失归设计态、坏输入报错、CLI 正常与失败两条）。
+- 兼容：壳侧原 helper（`optiflow-workbench/src/python/parse_summary.py`）输出与它**逐字相同**（已比对），
+  暂不强制切换，避免同一天动两个仓的同一件事。
+- 消费方：独立桌面版（本机项目 `optiflow-desktop`；macOS 已出 `.app`/`dmg`，Windows 待出 exe）。
+- 验证口径：**全量 `pytest -q` → 367 passed / 3 skipped**（本改动之后跑的，零失败）。
+- **状态：已提交**（`9527de4`，2026-10-13；同批含本文件的记录）。未推送，等 cjh 点头。
+
+---
+
+# 平台期（2026-10-13）：动作注册表 ＋ 跨语言一致性断言（契约层第一刀 ＋ M2.5）
+
+- 新增 `src/optiflow/commands.py`：`COMMANDS` 表 ＋ `call()` 查表派发 ＋ CLI（`list` / `show` / `call`），现登记 **8 个动作**；
+  纯函数动作为主，`service.*` 走惰性单例（`_service()`）；job 类与真机链动作在契约文档「待收编」列明前提。
+- `api.py`：`/import-dxf`、`/assemble-report` 改走 `call()`（**HTTP 契约不变**，`tests/test_api.py` 50 项全绿）；
+  新增 `GET /commands`；`/capabilities` 带上命令表（capabilities 声明从此由表生成）。
+- `mcp.py`：工具表**由注册表生成**（不再手写第二份），原有 `optiflow_*` 工具保留。
+- 新增 `scripts/metrics_parity.mjs`：JS `metricsBoard` ↔ Python `report_assembler` 逐格断言（**18 格全同**）；
+  当天抓出并修掉一处措辞差：无判据时 Python 写 `—`、JS 写 `—（标准未规定）` → 对齐为后者（`report_assembler._effect_block`）。
+- 新增 `docs/action-contract.md`（唯一权威）：动作清单 ＋ 待收编 ＋ **回执约定 `{ok, state, evidence}`**。
+- 测试：`tests/test_commands.py` 21 项（含 MCP 同源三条）；全量 **385 passed / 3 skipped**。
+- **未跑**：`ruff`（workshop 环境没装，仓规要求 0 errors —— 这条属未验证，下次在有 ruff 的环境补）。
+- 状态：已提交（`aa3eddb`），**未推送**（等 cjh 点头）。措辞改动会体现在此后生成的报告里；已交付那份是改动前产物，不受影响。
+
+## 平台期补记（2026-10-13 下午）：指标板作为数据 ＋ Tk 视图地基
+
+- `report_assembler.metrics_rows(pkg, criteria)`：六项指标**作为数据**返回（原先只有 `_effect_block` 里拼的 markdown，
+  界面/断言想拿数据只能解析 markdown）。报告块与数据共用同一批 helper（`_METRICS` / `_judge` / `_fmt_num` / `_crit_text`），**不可能再分叉**。
+- 新动作 `report.metrics`（共 9 个动作）；`plan.summary` / `report.assemble` / `report.metrics` 都补上回执 `state`/`evidence`（注册表层也不能漏）。
+- `scripts/metrics_parity.mjs` 升级为**数据对数据**：JS `metricsBoard` ↔ Py `report.metrics` 逐格比 **24 格（6 行 × 值/阈值/判定/出处）**，
+  另加一层「报告渲染与数据一致」。两组（带/不带判据表）均全同。
+- 测试：+5 项（metrics_rows 形状与顺序、无判据措辞回归钉、report.metrics 动作）；全量 **390 passed / 3 skipped**。
+- 消费方：独立桌面版的 `app/tk_shell.py`（三段 Tk 视图原型，无头 smoke 三段全通）。

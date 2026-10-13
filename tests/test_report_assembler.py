@@ -115,6 +115,17 @@ def test_ugr_point_list_worst_case_and_point_detail() -> None:
     assert "未取证" in text  # 渲染图/价格等其他缺项仍正常标注
 
 
+def test_render_block_accepts_captions(tmp_path) -> None:
+    """图件可带图注（dict 形式），字符串形式仍兼容（交付件要能说清图是什么）。"""
+    text = assemble_report(PACKAGE, criteria=CRITERIA, render_images=[
+        {"path": "a.png", "caption": "工作面照度网格（同源报表页）"},
+        "b.png",
+    ])
+    assert "![工作面照度网格（同源报表页）](a.png)" in text
+    assert "*图：工作面照度网格（同源报表页）*" in text
+    assert "![渲染效果](b.png)" in text
+
+
 def test_ugr_absent_marks_unevidenced_without_point_line() -> None:
     pkg = copy.deepcopy(PACKAGE)
     pkg["workplane"]["ugr"] = None
