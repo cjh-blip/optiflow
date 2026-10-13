@@ -195,6 +195,44 @@ TOOLS: List[Dict[str, Any]] = [
     },
 ]
 
+# ---------------------------------------------------------- 注册表动作（生成，不手写）
+# 为什么生成：动作表（`commands.py`）已经是一份声明，MCP 工具列表再手写一遍就是第二份，
+# 两份必然漂。这里把注册表的每条动作append成 MCP 工具，名字就用命令 id（与 `optiflow_*` 不冲突）。
+def _registry_handler(command_id: str):
+    def run(_service: PlatformService, args: Dict[str, Any]) -> Any:
+        from .commands import call
+
+        return call(command_id, args)
+    return run
+
+
+def _json_schema(cmd: Any) -> Dict[str, Any]:
+    type_map = {"str": "string", "path": "string", "markdown": "string",
+                "int": "integer", "float": "number", "bool": "boolean"}
+    props: Dict[str, Any] = {}
+    required: List[str] = []
+    for p in cmd.params:
+        js_type = type_map.get(p.type)
+        props[p.name] = ({"type": js_type} if js_type else {})
+        props[p.name]["description"] = p.help or p.type
+        if p.required:
+            required.append(p.name)
+    schema: Dict[str, Any] = {"type": "object", "properties": props}
+    if required:
+        schema["required"] = required
+    return schema
+
+
+from .commands import COMMANDS as _REGISTRY  # noqa: E402  （放这里是为了让它紧跟生成逻辑）
+
+for _cid, _cmd in sorted(_REGISTRY.items()):
+    TOOLS.append({
+        "name": _cid,
+        "description": f"{_cmd.description}｜返回 {_cmd.returns}",
+        "inputSchema": _json_schema(_cmd),
+        "handler": _registry_handler(_cid),
+    })
+
 TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
 
 

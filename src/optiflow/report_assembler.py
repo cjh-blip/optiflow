@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Dict, List, Optional, Sequence
 
-__all__ = ["assemble_report"]
+__all__ = ["assemble_report", "metrics_rows"]
 
 STANDARD = "GB/T 50034-2024"
 
@@ -139,27 +139,59 @@ def _ugr_point_line(pkg: Dict[str, Any]) -> Optional[str]:
     return "UGR 观察点：" + "；".join(segs) + "。" if segs else None
 
 
+def _metric_value(pkg: Dict[str, Any], metric: Dict[str, Any]) -> Any:
+    """取一项指标的实测值。UGR 为点记录列表时取**最不利值**（与报告同口径）。"""
+    value = _dig(pkg, metric["pkg"])
+    if isinstance(value, list):
+        value = max(
+            (p.get("ugr_max") for p in value
+             if isinstance(p, dict) and p.get("ugr_max") is not None),
+            default=None,
+        )
+    return value
+
+
+def metrics_rows(pkg: Dict[str, Any],
+                 criteria: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """六项指标**作为数据**（不是 markdown）。
+
+    为什么要有这个：报告是给人看的，界面与断言要的是数据。原先只有 `_effect_block`
+    里那段拼字串，谁想拿数据就只能去解析 markdown；这一层把两者拉到同一处，
+    报告块与数据不可能再分叉。
+
+    返回：[{key, label, unit, value, valueText, threshold, verdict, source}]，顺序固定。
+    """
+    crit = _criteria_index(criteria)
+    rows: List[Dict[str, Any]] = []
+    for metric in _METRICS:
+        value = _metric_value(pkg, metric)
+        rule = crit.get(metric["crit"]) or {}
+        rows.append({
+            "key": metric["crit"],
+            "label": metric["label"],
+            "unit": metric["unit"],
+            "value": value,
+            "valueText": _fmt_num(value, metric["unit"]),
+            "threshold": (_crit_text(rule) or "—（标准未规定）") if rule else "—（标准未规定）",
+            "verdict": _judge(value, rule.get("op"), rule.get("value")),
+            "source": f"{rule.get('standard', '')} {rule.get('table', '')}".strip() if rule else "",
+        })
+    return rows
+
+
 def _effect_block(pkg: Dict[str, Any], crit: Dict[str, Dict[str, Any]]) -> str:
     lines = [_block_header("2. 照明效果（六项指标）"), ""]
     lines.append("| 指标 | 实测值 | 判据阈值 | 判定 |")
     lines.append("|---|---:|---:|---|")
     for metric in _METRICS:
-        value = _dig(pkg, metric["pkg"])
-        if isinstance(value, list):
-            # UGR 点记录列表（多样本就绪，见抽取器）：报告取最不利值参与判定
-            value = max(
-                (
-                    p.get("ugr_max")
-                    for p in value
-                    if isinstance(p, dict) and p.get("ugr_max") is not None
-                ),
-                default=None,
-            )
+        value = _metric_value(pkg, metric)
         rule = crit.get(metric["crit"]) or {}
-        threshold = _crit_text(rule) if rule else "—"
+        # 无判据时写「—（标准未规定）」，与 JS 侧 metrics.js 逐字一致（
+        # 2026-10-13 由跨语言一致性断言抓出：原先这里写「—」，两侧措辞不同）。
+        threshold = _crit_text(rule) if rule else "—（标准未规定）"
         lines.append(
             f"| {metric['label']} | {_fmt_num(value, metric['unit'])} "
-            f"| {threshold or '—'} | {_judge(value, rule.get('op'), rule.get('value'))} |"
+            f"| {threshold or '—（标准未规定）'} | {_judge(value, rule.get('op'), rule.get('value'))} |"
         )
     ugr_line = _ugr_point_line(pkg)
     if ugr_line:
@@ -177,13 +209,28 @@ def _effect_block(pkg: Dict[str, Any], crit: Dict[str, Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _render_block(images: Optional[Sequence[str]]) -> str:
+def _render_block(images: Optional[Sequence[Any]]) -> str:
+    """图件块。元素可以是路径字符串，也可以是 ``{path, caption}`` 字典。
+
+    带 caption 时同时写入图注——交付件里必须能让读者分清图是什么
+    （例：DIALux 报表页的照度网格视图 ≠ 光线追踪渲染图）。
+    """
     lines = [_block_header("3. 渲染效果"), ""]
     if not images:
         lines.append("> 未取证：渲染图/伪彩照度图尚未导出（待真机单点出图后补入）。")
         return "\n".join(lines)
-    for image in images:
-        lines.append(f"![渲染效果]({image})")
+    for item in images:
+        if isinstance(item, dict):
+            image = item.get("path") or item.get("src")
+            caption = item.get("caption")
+        else:
+            image, caption = item, None
+        if not image:
+            continue
+        lines.append(f"![{caption or '渲染效果'}]({image})")
+        if caption:
+            lines.append("")
+            lines.append(f"*图：{caption}*")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -294,11 +341,14 @@ def assemble_report(
     *,
     criteria: Optional[Dict[str, Any]] = None,
     price: Optional[Dict[str, Any]] = None,
-    render_images: Optional[Sequence[str]] = None,
+    render_images: Optional[Sequence[Any]] = None,
     project_name: str = "会议室照明设计",
     generated_on: Optional[str] = None,
 ) -> str:
-    """结果包（＋判据表/价格/图件）→ 报告 Markdown。"""
+    """结果包（＋判据表/价格/图件）→ 报告 Markdown。
+
+    ``render_images`` 元素为路径字符串或 ``{path, caption}``（带图注）。
+    """
     crit = _criteria_index(criteria)
     meta = package.get("meta") or {}
     source_pdf = (package.get("artifacts") or {}).get("report_pdf")

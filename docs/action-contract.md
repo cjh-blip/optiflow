@@ -1,0 +1,104 @@
+# 动作契约（Action Contract）
+
+> **唯一权威**。可执行版本在 `src/optiflow/commands.py`；本文是它的说明与边界。
+> 改了动作的参数或返回，**本文与 `tests/test_commands.py` 必须同步改** —— 契约漂移比代码漂移贵。
+
+## 一句话
+
+平台层的动作只定义一次：`COMMANDS = {id: {handler, params, returns, description}}`。
+四个前端（`api.py` 的 HTTP、`mcp.py`、两个 `-m` CLI、以及外部壳与 agent）一律**查表派发**，
+不各自直接摸 core 函数。
+
+为什么值得这么做：现在光枢的动作散在各个前端里（CLI 一个写法、HTTP 一个写法、Tk 壳再一个写法），
+加第五个前端（Hana / DSH / agent 直连）就得再写一遍，且每写一遍都会悄悄分叉。
+一张表 + 一个 `call()`，第五个前端零成本。
+
+## 怎么用
+
+```bash
+# 列出全部动作（JSON）
+PYTHONPATH=src python -m optiflow.commands list
+
+# 看一个动作的规格（参数、类型、必填、返回）
+PYTHONPATH=src python -m optiflow.commands show plan.summary
+
+# 调用（值能当 JSON 解就当 JSON，否则当字符串）
+PYTHONPATH=src python -m optiflow.commands call plan.summary \
+    --dxf tests/fixtures/sample_room.dxf \
+    --dxf_lum tests/fixtures/sample_lighting.dxf \
+    --config tests/fixtures/sample_parse_config.json \
+    --ceil_h 4.0
+
+# 或整包给 JSON
+PYTHONPATH=src python -m optiflow.commands call report.assemble \
+    --params '{"package": "/abs/pkg.json", "criteria": "/abs/crit.json"}'
+```
+
+```python
+from optiflow.commands import call, list_commands, get
+
+call("plan.summary", {"dxf": "...", "config": "..."})   # 返回 dict
+```
+
+退出码：`0` 成功；`2` 失败（`{"ok": false, "error": "..."}` 打到 stdout，**错误里带可行动信息**）。
+
+## 动作清单
+
+| id | 组 | 做什么 | 必备参数 | 返回 |
+|---|---|---|---|---|
+| `plan.summary` | plan | 房间 DXF（＋灯具图＋配置）→ 摘要四数 ＋ 六项完整性检查 ＋ 校验分桶 | `dxf`, `config` | `{room_count, vertices_total, area_total_m2, furniture_candidates, luminaires_total, luminaires_by_kind, luminaires_by_shape, checks[], checks_passed, validation{}}` |
+| `ir.validate` | plan | IR 校验：jsonschema ＋ 七条业务规则 | `ir` | `{count, halt[], violations[]}` |
+| `service.import_dxf` | plan | DXF 文件 → IR ＋ 完整性检查（读文件并转 base64） | `path` | `PlatformService.import_dxf` 的返回 |
+| `report.assemble` | report | 结果包（＋判据表/价格）→ 七块 Markdown | `package` | `{markdown, chars}` |
+| `report.render_docx` | report | Markdown → DOCX（需 pandoc；缺了明确报错） | `markdown`, `out` | `{docx, bytes}` |
+| `service.import_dxf_b64` | plan | DXF 正文（base64）→ IR ＋ 完整性检查；**与 HTTP `/import-dxf` 同形** | `filename`, `content_base64` | 同 `import_dxf` |
+| `report.assemble_from_pdf` | report | DIALux 报表 PDF → 抽数 → 七块报告；**与 HTTP `/assemble-report` 同形** | `report_pdf` | 同 `assemble_report_pdf` |
+| `service.capabilities` | meta | 能力目录：本表 ＋ 适配器能力声明 | — | `{adapters[], commands[]}` |
+
+## 约定
+
+1. **参数类型白名单**：`str` / `int` / `float` / `bool` / `json` / `path` / `markdown`。
+   `json` 类参数既可给已解析的对象，也可给 JSON 文件路径（本表替你读）。
+2. **多给参数报错**：不认识的键**不静默忽略**，直接报「不认识参数，它认这些」。
+3. **少给必填报错**：说清缺哪个、那是什么。
+4. **失败抛异常**：库层不管用户界面（与 `plan_summary` 同一纪律）；壳负责把异常变成人话。
+5. **路径由调用方给**：本表不做 cwd 猜测（`ParseConfig.from_json` 是裸 `read_text`，相对路径会踩空）。
+6. **加新动作两步**：`commands.py` 登记一条 ＋ `tests/test_commands.py` 加一条（能调用、能报错）。
+
+## 回执约定（`{ok, state, evidence}`）
+
+凡是对外回话的动作（HTTP 端点、MCP 工具、CLI 的 `call`）统一三个键：
+
+| 键 | 放什么 | 例 |
+|---|---|---|
+| `ok` | 成功/失败（失败另有 `message`/`error`，必须带可行动原因） | `true` |
+| `state` | **关键中间量**：让上层不用解析正文就能判断（行数、房间数、灯位数、检查过几项、块数、字符数） | `{rows: 6, missing: []}` · `{room_count: 1, checks_passed: 6}` · `{blocks: 7, chars: 2845}` |
+| `evidence` | **输入出处与产物**：路径、生成物位置（截图/PDF/DOCX/MD），供事后对账 | `{inputs: {package: "..."}, artifacts: {markdown: "..."}}` |
+
+为什么：验收原本靠人眼看界面或解析正文；有了这三键，验收可以**读返回值**完成（storytold 的 `ui.inspect` 同思路）。
+现状（2026-10-13）：Hana App 三条路由、独立桌面版三端点与浏览器侧指标板、OptiFlow 的 `/metrics` 类响应都已带 `state`/`evidence`；断言钉在
+`optiflow-workbench-dev/route-integration.mjs`（三条路由各一条）。
+
+## 待收编（有意留白，不代表遗漏）
+
+| 动作 | 为什么还没进来 | 收编前提 |
+|---|---|---|
+| `pipeline.submit` / `.status` / `.result` / `.cancel` | 要一个 `PlatformService` 实例。**已定：注册表内惰性单例**（`commands._service()`，要换输出根就清掉它）；但 job 类动作带异步生命周期，收编要先定「job 归谁看」 | 定下 job 归属（HTTP 侧已有 `/jobs`，MCP 侧已有 `optiflow_job_*`） |
+| ~~`report.assemble_pdf`~~ | **已收编**为 `report.assemble_from_pdf`（2026-10-13） | — |
+| 真机链五动作（出 STF / 驱动 DIALux / 截图核对 / 抽数出报告 / 一条龙） | 代码在 **dialux-compiler** 仓（UIA 驱动、STF 导出、抽数），且**只能在 Windows 上跑**；跨仓收编要先定「链子归哪个仓管」 | Windows 版形态定型（计划 M3）之后 |
+| 指标板（六项）的**单一实现** | JS 侧已有 `metrics.js`、Python 侧已有 `report_assembler`；**跨语言一致性断言已落地**（`optiflow-workbench-dev/metrics-parity.mjs`，18 格全同） | 若要再收成一处，得先决定 JS 那份是否退化成「只有渲染」 |
+
+## 与其他前端的关系（现状 → 目标）
+
+| 前端 | 现状 | 目标 |
+|---|---|---|
+| `api.py`（HTTP） | 自己写路由 ＋ 直接调 service | 路由层只做「解析请求 → `call(id, params)` → 包装响应」 |
+| `mcp.py` | 自己列工具 | 工具表由 `list_commands()` 生成 |
+| `plan_summary` / `report_assembler` 的 `-m` CLI | 各自的 argparse | 保留（它们是"能单跑"的优点），但内部走同一 handler |
+| 独立桌面版 / Hana App | 各自三个 HTTP 端点 | 同样查表派发；真机链动作进来后，两端点变多点 |
+
+## 变更记录
+
+- 2026-10-13：首版。登记 6 个纯函数动作；`service.*` 与真机链动作留待收编。
+- 2026-10-13（M2.5）：补 2 个与 HTTP 端点同形的动作（共 8 个）；`api.py` 的 `/import-dxf`、`/assemble-report` 改走 `call()`（HTTP 契约不变，`tests/test_api.py` 50 项全绿）；`mcp.py` 的工具表由本表**生成**（不再手写第二份）；新增「回执约定」一节。
+  同日由跨语言一致性断言抓出并修掉一处口径措辞差（无判据时：`—` → `—（标准未规定）`，与 JS 侧逐字一致）。
