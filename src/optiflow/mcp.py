@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .service import PlatformService, build_default_service
 

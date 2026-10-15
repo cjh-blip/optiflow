@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
-from .adapter import Adapter, CapabilityDecl
+from .adapter import Adapter
 from .dispatcher import AdapterNotFound, Dispatcher
 from .ir import TaskSpec
 from .job import ResultSet

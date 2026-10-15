@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 __all__ = ["assemble_report", "metrics_rows"]
@@ -350,7 +351,6 @@ def assemble_report(
     ``render_images`` 元素为路径字符串或 ``{path, caption}``（带图注）。
     """
     crit = _criteria_index(criteria)
-    meta = package.get("meta") or {}
     source_pdf = (package.get("artifacts") or {}).get("report_pdf")
     lines: List[str] = [
         f"# {project_name} · 照明设计报告",

@@ -82,7 +82,7 @@ def summarize_plan(dxf: str, dxf_lum: Optional[str] = None,
     viols = validate_ir(ir)
     spaces = [s for st in ir.get("storeys", []) for s in st.get("spaces", [])]
     rooms = [s for s in spaces if not str(s.get("name", "")).startswith("家具_")]
-    lums = [l for s in spaces for l in s.get("luminaires", [])]
+    lums = [lm for s in spaces for lm in s.get("luminaires", [])]
 
     def count_by(sev: str) -> list:
         return [v for v in viols if v.get("severity") == sev]
@@ -135,8 +135,8 @@ def summarize_plan(dxf: str, dxf_lum: Optional[str] = None,
         "area_total_m2": area_total,
         "furniture_candidates": meta.get("furniture"),
         "luminaires_total": len(lums),
-        "luminaires_by_kind": dict(collections.Counter(l.get("kind", "unknown") for l in lums)),
-        "luminaires_by_shape": dict(collections.Counter(shape_of(l.get("symbol", "")) for l in lums)),
+        "luminaires_by_kind": dict(collections.Counter(lm.get("kind", "unknown") for lm in lums)),
+        "luminaires_by_shape": dict(collections.Counter(shape_of(lm.get("symbol", "")) for lm in lums)),
         "join_warnings": join_warnings,
         "lum_note": lum_note,
         "meta": meta,

@@ -19,11 +19,10 @@
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from ..ir import Fixture, Metric, Point, Space, TaskSpec
+from ..ir import Fixture, Metric, Point, TaskSpec
 from ..geometry import point_in_polygon
 from .layout import (
     DEFAULT_EDGE_FACTOR,

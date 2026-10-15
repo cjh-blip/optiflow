@@ -17,7 +17,6 @@ import pytest
 
 from optiflow.algo.layout import (
     DEFAULT_EDGE_FACTOR,
-    GridLayout,
     plan_grid,
     spacing_violation,
 )
