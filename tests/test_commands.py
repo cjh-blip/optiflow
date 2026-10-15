@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from optiflow.commands import (COMMANDS, CommandError, call, get, list_commands, main)
+from optiflow.commands import (COMMANDS, CommandError, call, get, list_commands)
 
 FIX = Path(__file__).resolve().parent / "fixtures"
 ROOM = FIX / "sample_room.dxf"

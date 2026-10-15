@@ -21,9 +21,9 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
-from .adapter import Adapter, CapabilityDecl
+from .adapter import CapabilityDecl
 from .adapters.dialux import DialuxAdapter
 from .adapters.lumen import LumenPlannerAdapter
 from .ir import TaskSpec

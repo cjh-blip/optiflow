@@ -186,7 +186,7 @@ def _algorithm_layer_demo() -> None:
     stf_path = Path(run.result_of("export").artifacts["stf"])
     print(f"      方案: {run.result_of('plan').artifacts['plan']}")
     print(f"      STF : {stf_path}（{stf_path.stat().st_size} 字节）")
-    print(f"      模型边界：")
+    print("      模型边界：")
     for note in plan_result.raw["assumptions"][:3]:
         print(f"        · {note}")
     for note in plan_result.raw["warnings"]:

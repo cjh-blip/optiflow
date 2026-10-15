@@ -17,11 +17,11 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from ..adapter import CapabilityDecl
 from ..algo.engine import ALGO_LIMITS, LayoutPlan, plan_layout
-from ..ir import Fixture, Metric, Point, TaskSpec
+from ..ir import TaskSpec
 from ..job import JobStatus, Progress, ResultSet
 
 logger = logging.getLogger(__name__)
