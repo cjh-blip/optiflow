@@ -47,9 +47,11 @@ call("plan.summary", {"dxf": "...", "config": "..."})   # 返回 dict
 | id | 组 | 做什么 | 必备参数 | 返回 |
 |---|---|---|---|---|
 | `plan.summary` | plan | 房间 DXF（＋灯具图＋配置）→ 摘要四数 ＋ 六项完整性检查 ＋ 校验分桶 | `dxf`, `config` | `{room_count, vertices_total, area_total_m2, furniture_candidates, luminaires_total, luminaires_by_kind, luminaires_by_shape, checks[], checks_passed, validation{}}` |
+| `plan.light_backcalc` | plan | 选灯反推：面积＋目标照度（＋CU/MF/LPD 上限/灯数）→ 总光通量、功率天花板、单灯区间；**不排灯位、不推荐型号** | `area_m2`, `target_lux` | `{total_flux_lm, power_budget_w, per_lamp{}, params_used, state, evidence}` |
 | `ir.validate` | plan | IR 校验：jsonschema ＋ 七条业务规则 | `ir` | `{count, halt[], violations[]}` |
 | `service.import_dxf` | plan | DXF 文件 → IR ＋ 完整性检查（读文件并转 base64） | `path` | `PlatformService.import_dxf` 的返回 |
 | `report.assemble` | report | 结果包（＋判据表/价格）→ 七块 Markdown | `package` | `{markdown, chars}` |
+| `report.metrics` | report | 六项指标板（**数据**，非 markdown）：实测/阈值/判定/出处，UGR 取最不利 | `package` | `{rows[], count}` |
 | `report.render_docx` | report | Markdown → DOCX（需 pandoc；缺了明确报错） | `markdown`, `out` | `{docx, bytes}` |
 | `service.import_dxf_b64` | plan | DXF 正文（base64）→ IR ＋ 完整性检查；**与 HTTP `/import-dxf` 同形** | `filename`, `content_base64` | 同 `import_dxf` |
 | `report.assemble_from_pdf` | report | DIALux 报表 PDF → 抽数 → 七块报告；**与 HTTP `/assemble-report` 同形** | `report_pdf` | 同 `assemble_report_pdf` |
@@ -118,3 +120,4 @@ register(Command(id="dialux.parse", handler=..., group="dialux",
 - 2026-10-13：首版。登记 6 个纯函数动作；`service.*` 与真机链动作留待收编。
 - 2026-10-13（M2.5）：补 2 个与 HTTP 端点同形的动作（共 8 个）；`api.py` 的 `/import-dxf`、`/assemble-report` 改走 `call()`（HTTP 契约不变，`tests/test_api.py` 50 项全绿）；`mcp.py` 的工具表由本表**生成**（不再手写第二份）；新增「回执约定」一节。
   同日由跨语言一致性断言抓出并修掉一处口径措辞差（无判据时：`—` → `—（标准未规定）`，与 JS 侧逐字一致）。
+- 2026-10-15：新增 `plan.light_backcalc`（选灯反推尺子）：利用系数法反推总光通量/功率天花板/单灯区间，纯函数＋测试；两条护栏（不排灯位、不推荐型号）写进 description。清单同时补上此前漏列的 `report.metrics`（动作 2026-10-13 已登记，清单当时未同步）。

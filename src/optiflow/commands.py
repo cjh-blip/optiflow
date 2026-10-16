@@ -110,6 +110,21 @@ def _cmd_plan_summary(*, dxf: str, config: str, dxf_lum: Optional[str] = None,
     }
 
 
+def _cmd_plan_light_backcalc(*, area_m2: float, target_lux: float,
+                             cu: Optional[float] = None, mf: Optional[float] = None,
+                             lpd_cap: Optional[float] = None,
+                             count: Optional[int] = None) -> Dict[str, Any]:
+    """选灯反推（库函数 `optiflow.light_selection.backcalc` 的注册表入口）。
+
+    给面积与目标照度，算回所需总光通量、功率天花板、单灯区间；
+    不排灯位、不推荐型号（护栏写在模块 docstring 与 description 里）。
+    """
+    from optiflow.light_selection import backcalc
+
+    return backcalc(area_m2=area_m2, target_lux=target_lux, cu=cu, mf=mf,
+                    lpd_cap=lpd_cap, count=count)
+
+
 def _cmd_report_assemble(*, package: Any, criteria: Any = None, price: Any = None,
                          project_name: str = "会议室照明设计",
                          generated_on: Optional[str] = None) -> Dict[str, Any]:
@@ -223,6 +238,19 @@ _COMMANDS: Tuple[Command, ...] = (
             Param("config", "path", help="解析配置 JSON 绝对路径"),
             Param("dxf_lum", "path", required=False, help="灯具图 DXF（不给则灯位为 0 并在检查里标注）"),
             Param("ceil_h", "float", required=False, help="净高兜底（米）"),
+        ),
+    ),
+    Command(
+        id="plan.light_backcalc", handler=_cmd_plan_light_backcalc, group="plan",
+        description="选灯反推：面积＋目标照度（＋CU/MF/LPD 上限/灯数）→ 总光通量、功率天花板、单灯区间；不排灯位、不推荐型号",
+        returns="{total_flux_lm, power_budget_w, per_lamp{flux_lm,power_w}, params_used, state, evidence}",
+        params=(
+            Param("area_m2", "float", help="房间面积（㎡）"),
+            Param("target_lux", "float", help="目标维持平均照度（lx，取项目判据值）"),
+            Param("cu", "float", required=False, help="利用系数 0~1（缺省 0.6，宽配光浅色顶棚可上取）"),
+            Param("mf", "float", required=False, help="维护系数 0~1（缺省 0.8）"),
+            Param("lpd_cap", "float", required=False, help="LPD 上限 W/㎡（给了才算功率天花板）"),
+            Param("count", "int", required=False, help="预计灯数（给了才摊单灯光通量/功率）"),
         ),
     ),
     Command(
