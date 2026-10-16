@@ -91,6 +91,37 @@ def test_rerun_is_stable() -> None:
     assert a == b
 
 
+def test_luminaire_basis_column_from_backcalc() -> None:
+    """选型表「依据」列走 plan.light_backcalc 同一口径（2026-10-16 选灯入口②）。
+
+    期望值手算后与 light_selection.backcalc 核对：
+      Φ = 300 lx × 116.03 ㎡ ÷ (0.6 × 0.8) = 72,519 lm；配 48×4200 = 201,600 lm ≥ 需 → ✓
+      功率天花板 = 6.5 W/㎡ × 116.03 ㎡ = 754.2 W；配 48×36 = 1728 W > 上限 → ✗（如实标）
+    """
+    text = assemble_report(PACKAGE, criteria=CRITERIA)
+    assert "依据（选灯反推）" in text
+    assert "需 Φ 72519 lm；配 48×4200＝201600 lm ✓" in text
+    assert "P 1728 W > 上限 754.2 W ✗" in text
+    assert ("选灯反推：面积 116.03 ㎡ × 目标 300 lx，CU 0.6 × MF 0.8"
+            " → 需总光通量 72519 lm；LPD 上限 6.5 W/㎡ → 功率天花板 754.2 W"
+            "（口径＝plan.light_backcalc：不排灯位、不推荐型号）" in text)
+
+
+def test_basis_unevidenced_without_criteria() -> None:
+    """不给判据表就没有目标照度：依据列如实写未取证，不编数。"""
+    text = assemble_report(PACKAGE)
+    assert "未取证（缺判据表照度目标）" in text
+    assert "选灯反推：面积" not in text  # 没依据就不写依据行
+
+
+def test_basis_unevidenced_without_rooms() -> None:
+    """结果包没房间面积同理（抽取器换 schema 时的防线）。"""
+    pkg = copy.deepcopy(PACKAGE)
+    pkg["rooms"] = []
+    text = assemble_report(pkg, criteria=CRITERIA)
+    assert "未取证（缺结果包房间面积）" in text
+
+
 def test_missing_ugr_marks_unevidenced() -> None:
     pkg = copy.deepcopy(PACKAGE)
     pkg["workplane"]["ugr"] = None
