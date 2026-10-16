@@ -954,3 +954,15 @@ UGR 观察点：CP1 计算点 1 (RUG) 16.2（最不利 240°，目标 ≤ 19，�
   坑两处已修并记档：脚本自身带模式串会自指命中（排除自身）；判退出码别接管道（`if 脚本 | tail` 判的是 tail）。
 - GitHub 治理（cjh 定）：通用能力公开 / 带项目细节的仓一侕私有；`optiflow-desktop`、`optiflow-workbench`、`optiflow-app` 为私有仓。
   两仓与远端曾实质分叉（本地 `master` / 远端 `main`，`optiflow` 领先 15 落后 25、`dialux-compiler` 领先 35 落后 9）→ **开分支必须从 `origin/main` 拉**。
+
+# 平台期（2026-10-15）：选灯反推 ＋ lint/依赖闭项
+
+- 新动作 `plan.light_backcalc`（选灯反推尺子，提交 `bee51c5`）：`src/optiflow/light_selection.py` 纯函数
+  （Φ = E×A/(CU×MF) 反推总光通量；LPD×A 得功率天花板；给灯数则摊单灯），`tests/test_light_selection.py` 13 项。
+  两条护栏写死：不排灯位、不推荐型号。契约清单同步，并补上此前漏列的 `report.metrics` 行。
+  界面入口未做（候选：指标页小块 / 报告选型依据列，等 cjh 挑方向）。
+- lint 闭项：门④步 ruff 此前因环境无 ruff 跳过；装回**谱系锁定版 0.15.1** 后 23 条清零
+  （16 自动修 + 7 手工：E741 改名 / F841 死赋值 / `report_assembler` 补 `Path` 导入修 F821 悬空注解名）。
+  **`ruff==0.15.1` 已写进 requirements.txt**：0.17 起默认规则变更会虚增到 874 条，上游 AGENTS 禁止
+  靠加宽配置做绿 → 以版本锁而非配置段救门，换机器装错版本先降级。
+- 全量测试 405 passed / 3 skipped；跨语言断言、ruff、推送门均绿。
