@@ -955,7 +955,7 @@ UGR 观察点：CP1 计算点 1 (RUG) 16.2（最不利 240°，目标 ≤ 19，�
 - GitHub 治理（cjh 定）：通用能力公开 / 带项目细节的仓一侕私有；`optiflow-desktop`、`optiflow-workbench`、`optiflow-app` 为私有仓。
   两仓与远端曾实质分叉（本地 `master` / 远端 `main`，`optiflow` 领先 15 落后 25、`dialux-compiler` 领先 35 落后 9）→ **开分支必须从 `origin/main` 拉**。
 
-# 平台期（2026-10-15）：选灯反推 ＋ lint/依赖闭项
+# 平台期（2026-10-15 落锁 / 2026-10-16 选灯反推 ＋ lint/依赖闭项）
 
 - 新动作 `plan.light_backcalc`（选灯反推尺子，提交 `bee51c5`）：`src/optiflow/light_selection.py` 纯函数
   （Φ = E×A/(CU×MF) 反推总光通量；LPD×A 得功率天花板；给灯数则摊单灯），`tests/test_light_selection.py` 13 项。
