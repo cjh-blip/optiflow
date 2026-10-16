@@ -83,19 +83,68 @@ def _block_header(title: str) -> str:
     return f"## {title}\n"
 
 
-def _luminaire_block(pkg: Dict[str, Any]) -> str:
+def _backcalc_basis(crit: Optional[Dict[str, Any]], pkg: Dict[str, Any]) -> Dict[str, Any]:
+    """选灯反推依据（`plan.light_backcalc` 同一口径，2026-10-16 选灯入口②）。
+
+    面积＝结果包各房间合计；目标照度＝判据表 `illuminance_avg`；LPD 上限＝`lpd_target`。
+    拿不齐就不编数：返回 `ok=False` 与原因，选型表「依据」列如实写「未取证」。
+    """
+    areas = [r.get("area_m2") for r in (pkg.get("rooms") or [])
+             if isinstance(r.get("area_m2"), (int, float)) and r.get("area_m2") > 0]
+    area = round(sum(areas), 2) if areas else None
+    rules = crit or {}
+    lux_rule = rules.get("illuminance_avg") or {}
+    target = lux_rule.get("value") if lux_rule.get("unit") == "lx" else None
+    if area is None:
+        return {"ok": False, "why": "缺结果包房间面积"}
+    if not isinstance(target, (int, float)) or target <= 0:
+        return {"ok": False, "why": "缺判据表照度目标"}
+    from optiflow.light_selection import backcalc
+
+    lpd_rule = rules.get("lpd_target") or {}
+    lpd_cap = lpd_rule.get("value") if lpd_rule.get("unit") == "W/m²" else None
+    try:
+        bc = backcalc(area_m2=area, target_lux=float(target),
+                      lpd_cap=float(lpd_cap) if lpd_cap is not None else None)
+    except (TypeError, ValueError) as exc:
+        return {"ok": False, "why": f"反推参数不合法（{exc}）"}
+    return {"ok": True, "area": area, "target": target, "lpd_cap": lpd_cap, "bc": bc}
+
+
+def _basis_cell(item: Dict[str, Any], basis: Dict[str, Any]) -> str:
+    """选型表单行的依据格：本行配得够不够（总通量必比，功率只在有上限时比）。"""
+    if not basis.get("ok"):
+        return f"未取证（{basis.get('why')}）"
+    n, flux, power = item.get("count"), item.get("flux_lm"), item.get("power_w")
+    total = basis["bc"].get("total_flux_lm")
+    if not n or not isinstance(flux, (int, float)) or total is None:
+        return "未取证（缺数量或光通量）"
+    supply = n * flux
+    bits = [f"需 Φ {_fmt_num(total, 'lm')}；配 {n}×{_fmt_num(flux)}＝{_fmt_num(round(supply))} lm "
+            f"{'✓' if supply >= total else '✗'}"]
+    budget = basis["bc"].get("power_budget_w")
+    if budget is not None and isinstance(power, (int, float)):
+        p = round(n * power, 1)
+        bits.append(f"P {_fmt_num(p, 'W')} {'≤' if p <= budget else '>'} 上限 {_fmt_num(budget, 'W')} "
+                    f"{'✓' if p <= budget else '✗'}")
+    return "；".join(bits)
+
+
+def _luminaire_block(pkg: Dict[str, Any], crit: Optional[Dict[str, Any]] = None) -> str:
     luminaires = pkg.get("luminaires") or []
     lines = [_block_header("1. 灯具选型列表"), ""]
     if not luminaires or luminaires[0].get("count") is None:
         lines.append("> 未取证：结果包中没有可用的灯具列表。")
         return "\n".join(lines)
-    lines.append("| 型号 | 制造商 | 编号 | 数量 | 单灯功率 | 光通量 | 发光效率 |")
-    lines.append("|---|---|---|---:|---:|---:|---:|")
+    basis = _backcalc_basis(crit, pkg)
+    lines.append("| 型号 | 制造商 | 编号 | 数量 | 单灯功率 | 光通量 | 发光效率 | 依据（选灯反推） |")
+    lines.append("|---|---|---|---:|---:|---:|---:|---|")
     for item in luminaires:
         lines.append(
             f"| {item.get('model') or '—'} | {item.get('manufacturer') or '—'} | {item.get('sku') or '—'} "
             f"| {_fmt_num(item.get('count'), '件')} | {_fmt_num(item.get('power_w'), 'W')} "
-            f"| {_fmt_num(item.get('flux_lm'), 'lm')} | {_fmt_num(item.get('efficacy_lm_w'), 'lm/W')} |"
+            f"| {_fmt_num(item.get('flux_lm'), 'lm')} | {_fmt_num(item.get('efficacy_lm_w'), 'lm/W')} "
+            f"| {_basis_cell(item, basis)} |"
         )
     positions = (luminaires[0].get("positions") or []) if luminaires else []
     if positions:
@@ -106,6 +155,17 @@ def _luminaire_block(pkg: Dict[str, Any]) -> str:
     if total_flux is not None or total_power is not None:
         lines.append("")
         lines.append(f"合计：Φ {_fmt_num(total_flux, 'lm')} ／ P {_fmt_num(total_power, 'W')}。")
+    if basis.get("ok"):
+        bc = basis["bc"]
+        used = bc.get("params_used") or {}
+        tail = (f"选灯反推：面积 {basis['area']} ㎡ × 目标 {basis['target']} lx"
+                f"，CU {used.get('cu')} × MF {used.get('mf')}"
+                f" → 需总光通量 {_fmt_num(bc.get('total_flux_lm'), 'lm')}")
+        if bc.get("power_budget_w") is not None:
+            tail += (f"；LPD 上限 {basis['lpd_cap']} W/㎡"
+                     f" → 功率天花板 {_fmt_num(bc.get('power_budget_w'), 'W')}")
+        lines.append("")
+        lines.append(tail + "（口径＝plan.light_backcalc：不排灯位、不推荐型号）")
     return "\n".join(lines)
 
 
@@ -363,7 +423,7 @@ def assemble_report(
         "---",
         "",
     ]
-    lines.append(_luminaire_block(package))
+    lines.append(_luminaire_block(package, crit))
     lines.append("")
     lines.append("---")
     lines.append("")
