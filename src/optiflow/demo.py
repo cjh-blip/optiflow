@@ -2,7 +2,7 @@
 
 运行：
     $env:PYTHONPATH = "src"
-    D:\\dev\\anaconda3\\python.exe -m optiflow.demo
+    python -m optiflow.demo
 """
 
 from __future__ import annotations

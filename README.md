@@ -4,7 +4,7 @@
 
 - 接入对象：DIALux（照明）、Zemax（成像/仿真）、Creo（CAD）
 - 平台角色：工具集（对外暴露能力），编排交给 AI agent；平台另置统一入口
-- 计划文档：`plans\20260910_光学软件统一平台骨架_计划.md`
+- 计划文档：`plans/20260910_光学软件统一平台骨架_计划.md`（计划库）
 
 ## 架构一句话
 
@@ -18,33 +18,33 @@
 
 ## 快速开始
 
-两端环境对照（命令只差解释器路径与 PYTHONPATH 注入方式，下文示例用 Windows 写法）：
+两端环境对照（命令只差解释器路径与 PYTHONPATH 注入方式，下文示例用 Windows 写法；`<python>` 换成你的解释器绝对路径）：
 
 | 端 | 解释器 | PYTHONPATH 注入 |
 |---|---|---|
-| Windows | `D:\dev\anaconda3\python.exe` | PowerShell：`$env:PYTHONPATH = "src"` |
+| Windows | `<python>` | PowerShell：`$env:PYTHONPATH = "src"` |
 | Mac | `~/anaconda3/envs/workshop/bin/python3` | `PYTHONPATH=src` 前缀；一键启动：双击 `启动光枢.command` |
 
 实测环境：Windows 侧 Python 3.11.15 + pydantic 2.12；Mac 侧 Python 3.12（workshop 环境）。本机 `python3` 可能无依赖，勿用。
 
 ```powershell
 # 依赖（pydantic / ezdxf / jsonschema / pytest）
-D:\dev\anaconda3\python.exe -m pip install -r requirements.txt
+<python> -m pip install -r requirements.txt
 
 # P0 验收一：全部测试
-D:\dev\anaconda3\python.exe -m pytest tests/ -v
+<python> -m pytest tests/ -v
 
 # 端到端演示（P0 假适配器 + P1 DIALux 文件层）
 $env:PYTHONPATH = "src"
-D:\dev\anaconda3\python.exe -m optiflow.demo
+<python> -m optiflow.demo
 
 # 金标准核对：迁移等价性（A）+ 与历史黄金文件的同语义比对（B2）
-D:\dev\anaconda3\python.exe scripts/verify_stf_parity.py
-D:\dev\anaconda3\python.exe scripts/verify_stf_parity.py --break-x   # 反向验证，应红
+<python> scripts/verify_stf_parity.py
+<python> scripts/verify_stf_parity.py --break-x   # 反向验证，应红
 
 # 冻结基准核对 / 刻意重冻结（详见 tests/fixtures/README.md）
-D:\dev\anaconda3\python.exe scripts/freeze_stf_baseline.py
-D:\dev\anaconda3\python.exe scripts/freeze_stf_baseline.py --write    # 只在刻意改 STF 格式时用
+<python> scripts/freeze_stf_baseline.py
+<python> scripts/freeze_stf_baseline.py --write    # 只在刻意改 STF 格式时用
 ```
 
 ## 目录
@@ -141,7 +141,7 @@ run.checks        # 逐条校验结论（含跨步骤对账）
 ### HTTP
 
 ```bash
-D:\dev\anaconda3\python.exe -m optiflow.api --port 8765
+<python> -m optiflow.api --port 8765
 ```
 
 | 方法 | 路径 | 说明 |
@@ -166,9 +166,9 @@ D:\dev\anaconda3\python.exe -m optiflow.api --port 8765
 {
   "mcpServers": {
     "optiflow": {
-      "command": "D:\\dev\\anaconda3\\python.exe",
+      "command": "python",
       "args": ["-m", "optiflow.mcp"],
-      "cwd": "D:\\dev\\OptiFlow",
+      "cwd": "<optiflow 仓目录>",
       "env": {"PYTHONPATH": "src"}
     }
   }
@@ -187,7 +187,7 @@ D:\dev\anaconda3\python.exe -m optiflow.api --port 8765
 ## 极简壳（P5）
 
 ```bash
-D:\dev\anaconda3\python.exe -m optiflow.api --port 8765
+<python> -m optiflow.api --port 8765
 # 浏览器打开 http://127.0.0.1:8765/
 ```
 
@@ -200,7 +200,7 @@ D:\dev\anaconda3\python.exe -m optiflow.api --port 8765
 无构建步骤、无前端框架、不引 CDN（离线也能开）。命令行走一遍同样的链路：
 
 ```bash
-D:\dev\anaconda3\python.exe scripts/shell_journey.py
+<python> scripts/shell_journey.py
 ```
 
 ## 两条 IR 纪律

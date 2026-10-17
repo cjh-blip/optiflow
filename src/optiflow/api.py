@@ -16,7 +16,7 @@ r"""HTTP 接口 —— 把平台暴露成 AI agent 能调的工具集。
 
 运行：
 
-    D:\dev\anaconda3\python.exe -m optiflow.api --port 8765
+    <python> -m optiflow.api --port 8765
 """
 from __future__ import annotations
 
