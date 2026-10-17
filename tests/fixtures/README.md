@@ -17,7 +17,7 @@
 
 ### 这份基准的来历
 
-任务书原本指定的「黄金文件」`D:\dev\dialux-compiler\build\mvp3_lums.stf` 是 **MVP3 之前的过期产物**：
+任务书原本指定的「黄金文件」`dialux-compiler/build/mvp3_lums.stf`（源仓构建目录）是 **MVP3 之前的过期产物**：
 灯具段是旧的一行占位格式 `LumN=x y z symbol`（Z 写死 0），而现版导出器已改成三行格式并写真实挂高。
 源仓自己也生不出那份文件——所以它不能当判卷标准，已降级为历史档（BLOCKED.md B-1）。
 

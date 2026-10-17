@@ -386,7 +386,7 @@ demo 里第二步差点被路由回算法层（`KeyError: 'stf'` 抓出来的）
    会变成 JSON 数组，违反 MCP schema，而客户端只会说「工具有问题」。
    已修，并把测试加强为 `isinstance(description, str)` + 整个清单过一遍 JSON。
 
-另修：`api.py` / `mcp.py` docstring 里的 `D:\dev\...` 是无效转义，会触发
+另修：`api.py` / `mcp.py` docstring 里的 Windows 盘符路径是无效转义，会触发
 DeprecationWarning（将来是错误）。已改为 raw docstring，并写了个扫描确认全仓无残留。
 
 ## 行为验证（实测输出）

@@ -13,7 +13,7 @@ roots，也没有 stdio 之外的传输）。够 agent 拿工具用了；要更�
 
 运行（MCP 客户端通常自己拉起来）：
 
-    D:\dev\anaconda3\python.exe -m optiflow.mcp
+    <python> -m optiflow.mcp
 """
 from __future__ import annotations
 

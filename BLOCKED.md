@@ -75,7 +75,7 @@ $ cmp /d/dev/dialux-compiler/build/mvp3_lums.stf <新仓产物>
 - 新建 `docs/agent-spec.md`（权限边界表 + 体系沿革，指向 AGENTS.md 作为唯一真身）。
 
 **待裁决**：「模型是 deepseek-v4-flash」这条事实取自冻结仓 `AGENTS.md` 的 2026-09-05 定案
-（配置在 `C:\Users\cjh\.dsh\settings.yaml` 的 `agent-default-model`）。请确认对 OptiFlow 也成立；
+（配置在 `<用户目录>\.dsh\settings.yaml` 的 `agent-default-model`）。请确认对 OptiFlow 也成立；
 若不成立，应改的是这两份文档，而不是测试断言。
 
 ---

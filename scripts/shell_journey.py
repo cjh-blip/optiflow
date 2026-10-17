@@ -4,7 +4,7 @@
 好让「非技术用户能独立完成一次任务」这句话有可执行证据，而不是靠肉眼看界面。
 
 运行：
-    D:\dev\anaconda3\python.exe scripts/shell_journey.py
+    <python> scripts/shell_journey.py
 """
 import json
 import sys
