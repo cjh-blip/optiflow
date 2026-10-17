@@ -966,3 +966,17 @@ UGR 观察点：CP1 计算点 1 (RUG) 16.2（最不利 240°，目标 ≤ 19，�
   **`ruff==0.15.1` 已写进 requirements.txt**：0.17 起默认规则变更会虚增到 874 条，上游 AGENTS 禁止
   靠加宽配置做绿 → 以版本锁而非配置段救门，换机器装错版本先降级。
 - 全量测试 405 passed / 3 skipped；跨语言断言、ruff、推送门均绿。
+
+# 平台期（2026-10-17 打磨批次）：TaskContext 根因修 ＋ 存量路径中性化
+
+- `TaskContext` 声明 `params`（默认 `{}`）、`Flow.run` 每步下发 `step.params`——与 dialux-compiler 真相源
+  同款修复，两仓 workbench 逐字对齐。修掉「任务读 `ctx.params` 经 Flow 必 AttributeError」的旧雷
+  （dc KANBAN 已记的潜在雷；dc 侧 `room_task` / `luminaires_task` 两处旧用法随之能跑，`getattr` 防御保留）。
+- 回归测试 +2（`tests/test_workbench.py`：默认 params 空 dict；逐步下发互不残留）→ 全量 **410 passed / 3 skipped**
+  （另：dc 侧 262 / 3，总 265，KANBAN 已对账；双仓 ruff 0.15.1 全过）。
+- 存量路径中性化（公开仓清理批次）：README 12 行（计划行 / 环境表 / 命令块改 `<python>` 占位 / MCP 配置）、
+  `demo / api / mcp / shell_journey` docstring、fixtures README、agent-spec、PROGRESS 历史行，
+  以及 `BLOCKED.md` 里一处 Windows 用户目录配置路径（硬漏网：门禁硬关键词只认另一变体，抓不到它）。
+  豁免不动：DXF 判卷样本（一字不改）、架构图 PNG（含路径待重生成，另案）、
+  `env.py` / 迁移脚本的功能默认值（属行为不属文档，另案）。
+- 状态：已提交（`218dd90` fix ＋ `f863700` docs），**未推送**（等 cjh 点头）。
