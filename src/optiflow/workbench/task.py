@@ -31,7 +31,7 @@ class TaskResult:
 
 
 class TaskContext:
-    """任务执行上下文：进程句柄、配置、日志回调、取消信号。
+    """任务执行上下文：进程句柄、配置、步骤参数、日志回调、取消信号。
 
     各任务通过它访问目标程序（DIALux/Zemax…）与共享配置，避免任务之间
     直接耦合。未来换软件只需提供一个新的 Context 实现。
@@ -41,10 +41,12 @@ class TaskContext:
         self,
         *,
         config: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
         log: Optional[Callable[[str], None]] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
     ):
         self.config = config or {}
+        self.params = params or {}
         self._log = log or (lambda _m: None)
         self._cancel = cancel_check or (lambda: False)
 
