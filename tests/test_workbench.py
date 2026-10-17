@@ -142,3 +142,32 @@ def test_config_roundtrip(tmp_path):
 
 def test_config_missing_file_defaults(tmp_path):
     assert WorkbenchConfig.load(tmp_path / "nope.json").dwg == ""
+
+
+# ------------------------------------------------ 任务参数（regression 2026-10-17）
+
+def test_taskcontext_params_default_empty():
+    # 旧雷：TaskContext 不声明 params → 任务读 ctx.params 直接 AttributeError
+    ctx = TaskContext()
+    assert ctx.params == {}
+    assert (ctx.params or {}).get("dwg", "") == ""
+
+
+def test_flow_passes_each_step_params_to_ctx():
+    class SpyTask(Task):
+        name = "Spy 任务"
+
+        def __init__(self):
+            self.seen = []
+
+        def run(self, ctx):
+            self.seen.append(dict(ctx.params))
+            return TaskResult(True)
+
+    spy1, spy2 = SpyTask(), SpyTask()
+    ctx = TaskContext()
+    flow = Flow("t").add(spy1, params={"dwg": "a.dwg"}).add(spy2)
+    results = flow.run(ctx)
+    assert all(r.ok for r in results)
+    assert spy1.seen == [{"dwg": "a.dwg"}]   # Flow 把 step.params 落到 ctx
+    assert spy2.seen == [{}]                  # 无参步拿到空 dict，不残留上一步

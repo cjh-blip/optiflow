@@ -91,6 +91,7 @@ class Flow:
                 else:
                     continue
             ctx.log(f"▶ {step.title}")
+            ctx.params = dict(step.params)  # 本步参数下发：任务从 ctx.params 读；空 dict 时任务回退 config
             try:
                 result = step.task.run(ctx)
             except Exception as exc:  # noqa: BLE001 - 任务异常视为失败
