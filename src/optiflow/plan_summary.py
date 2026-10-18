@@ -2,7 +2,12 @@
 """图纸 → 可核对摘要。
 
 吃「房间 DXF（＋可选灯具 DXF ＋ ParseConfig ＋净高）」出结构化 dict：房间/顶点/面积/
-家具候选/灯位（按 kind 与 shape 双维度）/校验分桶/六项完整性检查。
+家具候选/灯位（按 kind 与 shape 双维度）/校验分桶/七项完整性检查（六项并集＋轮廓点≥3，刀B 拍定）。
+
+刀B（2026-10-19）起本模块两个入口：
+- `summarize_plan(...)`：解析步（DXF → IR）＋ 摘要；
+- `summarize_ir(ir, ...)`：**IR → 摘要纯函数**，摘要与检查项的唯一口径（壳侧 `core.summarize`
+  薄壳转调它，exe 里 vendor 本模块即可、不必引整个平台）。
 
 为什么在库里而不是在某个壳里：两个宿主（Hana App 走子进程、独立桌面版走进程内）都要它，
 一份实现一份口径。库函数只管算，失败直接抛；CLI 负责把失败收成 `{ok:false,error}`。
@@ -50,6 +55,87 @@ def shape_of(symbol: str) -> str:
     return "block"
 
 
+# ── 刀B 补进来的三块语义（原口径在壳侧 core.summarize，依据见其注释与 App 侧 plan.mjs）──
+#: 家具范围裁剪：本链只做桌子＋白板，排除 9 件柜/架（候选 22 / 采用 13 / 排除 9 的双口径）
+EXCLUDED_LINEARC = {"001", "002", "003", "006", "012", "014", "016", "018", "021"}
+
+
+def linearc_short(name: Any) -> str:
+    """从家具伪空间名里取 LINEARC 数字 id（`LINEARC_001` → `001`；不是则空串）。"""
+    import re
+
+    m = re.search(r"LINEARC_(\d+)", str(name or ""))
+    return m.group(1) if m else ""
+
+
+def _bbox(polygon: Any) -> list:
+    """外包尺寸 [宽, 高]（米，三位小数）；空多边形回 [0.0, 0.0]（与壳侧原口径一致）。"""
+    if not polygon:
+        return [0.0, 0.0]
+    xs = [float(p[0] or 0) for p in polygon]
+    ys = [float(p[1] or 0) for p in polygon]
+    return [round(max(xs) - min(xs), 3), round(max(ys) - min(ys), 3)]
+
+
+def _ceiling_h(space: Dict[str, Any]) -> Optional[float]:
+    """净高：灯位 z 优先，但 **z=0 视为未赋值**（解析器在平图上就写 0；平台 `planner.mount`
+    的 UNSET_Z、校验器的 LUM_MOUNT_Z_UNSET、壳侧 JS 的 `z || null` 同此口径），
+    再回落 space.ceil_h（解析配置默认净高），都没有则 null。
+    与壳侧原式 `lamps[0].z if lamps else None` 的唯一差异：z 未赋值时我们给配置净高、
+    它给 0.0（壳侧 summary_line 把 0 当 falsy 渲染成 `?`，所以两边都显示不出错误高度）。"""
+    lamps = space.get("luminaires") or []
+    z = lamps[0].get("z") if lamps else None
+    if z:
+        return z
+    return space.get("ceil_h") or None
+
+
+def _furniture_block(spaces: list) -> Dict[str, Any]:
+    """家具双口径：候选 / 采用 / 排除（EXCLUDED_LINEARC 柜、架）＋ id 与名字清单。"""
+    furn = [s for s in spaces if str(s.get("name", "")).startswith("家具_")]
+    excluded = [s for s in furn if linearc_short(s.get("name")) in EXCLUDED_LINEARC]
+    return {
+        "count": len(furn),
+        "adopted": len(furn) - len(excluded),
+        "excluded": len(excluded),
+        "excluded_ids": sorted(linearc_short(s.get("name")) for s in excluded),
+        "names": [str(s.get("name")) for s in furn],
+    }
+
+
+def _main_room(ir: Dict[str, Any]) -> Dict[str, Any]:
+    """单主房选择（口径＝壳侧 `room_of`，一字不改）：**只看第一层**，先挑有灯位的 space，
+    没有则顶点最多的那个（含家具伪空间——照原样，不擅自收紧）；空 IR 回 0 值 dict，
+    保证壳侧 `room` 字段形状不变。另附它自己的灯位三数（壳侧 `luminaires` 块原本就是主房口径）。"""
+    from optiflow.adapters.dialux._chain import polygon_area
+
+    spaces0 = (ir.get("storeys") or [{}])[0].get("spaces") or []
+    main = None
+    for s in spaces0:
+        if s.get("luminaires"):
+            main = s
+            break
+    if main is None and spaces0:
+        main = max(spaces0, key=lambda s: len(s.get("polygon") or []))
+    main = main or {}
+    poly = main.get("polygon") or []
+    lamps = main.get("luminaires") or []
+    area = round(polygon_area(poly), 3) if len(poly) >= 3 else 0.0
+    return {
+        "id": main.get("id"),
+        "name": main.get("name"),
+        "points": len(poly),
+        "area_m2": area,
+        "bbox_m": _bbox(poly),
+        "ceiling_h_m": _ceiling_h(main),
+        "luminaires": {
+            "total": len(lamps),
+            "linear": sum(1 for x in lamps if x.get("kind") == "linear"),
+            "point": sum(1 for x in lamps if x.get("kind") == "point"),
+        },
+    }
+
+
 def summarize_plan(dxf: str, dxf_lum: Optional[str] = None,
                    config: Optional[str] = None,
                    ceil_h: Optional[float] = None) -> Dict[str, Any]:
@@ -57,7 +143,6 @@ def summarize_plan(dxf: str, dxf_lum: Optional[str] = None,
     _ensure_importable()
 
     from optiflow.adapters.dialux.dxf import ParseConfig, parse_dxf, extract_luminaires
-    from optiflow.adapters.dialux._chain import polygon_area
     from planner.join import join_luminaires
     from optiflow.validator import validate_ir
 
@@ -79,7 +164,31 @@ def summarize_plan(dxf: str, dxf_lum: Optional[str] = None,
             for sp in st.get("spaces", []):
                 sp.setdefault("ceil_h", ceil_h)
 
-    viols = validate_ir(ir)
+    return summarize_ir(ir, join_warnings=join_warnings, lum_note=lum_note,
+                        viols=validate_ir(ir))
+
+
+def summarize_ir(ir: Dict[str, Any], *,
+                 join_warnings: Optional[list] = None,
+                 lum_note: Optional[str] = None,
+                 viols: Optional[list] = None) -> Dict[str, Any]:
+    """IR → 摘要（纯函数：不读文件、不解析——解析步在 `summarize_plan` 或壳侧）。
+
+    刀B（2026-10-19）收编后的**唯一摘要口径**：壳侧 `core.summarize` 薄壳转调本入口。
+    三块从壳侧补进来的语义（一次带测试，不偷换）：
+    ① 家具排除双口径 `furniture`（`EXCLUDED_LINEARC` 排柜/架：候选/采用/排除）；
+    ② 每房 `bbox_m` 与 `ceiling_h_m`（灯位 z → space.ceil_h → null）；
+    ③ 单主房 `main_room`（口径＝那边 `room_of`，含它自己的灯位三数）。
+    `viols=None` → 自己调 `optiflow.validator.validate_ir`；vendor 方不想带校验就传 `[]`。
+    """
+    _ensure_importable()
+    from optiflow.adapters.dialux._chain import polygon_area
+
+    join_warnings = list(join_warnings or [])
+    if viols is None:
+        from optiflow.validator import validate_ir
+        viols = validate_ir(ir)
+
     spaces = [s for st in ir.get("storeys", []) for s in st.get("spaces", [])]
     rooms = [s for s in spaces if not str(s.get("name", "")).startswith("家具_")]
     lums = [lm for s in spaces for lm in s.get("luminaires", [])]
@@ -105,7 +214,7 @@ def summarize_plan(dxf: str, dxf_lum: Optional[str] = None,
     area_total = round(sum(polygon_area(r["polygon"]) for r in rooms if r.get("polygon")), 2)
     area_ok = 0 < area_total < 10000
 
-    # 六项完整性检查（逐条给结论，不打包成一个布尔）
+    # 七项完整性检查（逐条给结论，不打包成一个布尔）：平台原六项 ＋ 并集进来的「房间轮廓点 ≥ 3」（cjh 拍）
     checks = [
         {"name": "读到房间", "passed": len(rooms) >= 1, "detail": f"{len(rooms)} 个房间"},
         {"name": "房间环闭合",
@@ -116,8 +225,13 @@ def summarize_plan(dxf: str, dxf_lum: Optional[str] = None,
         {"name": "识别到家具", "passed": (meta.get("furniture") or 0) > 0,
          "detail": f"候选 {meta.get('furniture')} 件"},
         {"name": "识别到灯位", "passed": len(lums) > 0,
-         "detail": f"{len(lums)} 盏" + ("" if dxf_lum else "（未提供灯具图）")},
+         "detail": f"{len(lums)} 盏" + ("" if lum_note is None else "（未提供灯具图）")},
         {"name": "单位识别", "passed": bool(meta.get("dxf_units")), "detail": f"units={meta.get('dxf_units')}"},
+        # 第七项＝并集进来的（Windows 独有、平台原缺）：退化多边形守卫，扩到全体真房间
+        {"name": "房间轮廓点 ≥ 3",
+         "passed": bool(rooms) and min(len(r.get("polygon") or []) for r in rooms) >= 3,
+         "detail": (f"最少 {min(len(r.get('polygon') or []) for r in rooms)} 点"
+                    if rooms else "无房间")},
     ]
 
     return {
@@ -128,12 +242,16 @@ def summarize_plan(dxf: str, dxf_lum: Optional[str] = None,
                 "name": r.get("name"),
                 "vertices": len(r.get("polygon") or []),
                 "area_m2": round(polygon_area(r["polygon"]), 2) if r.get("polygon") else None,
+                "bbox_m": _bbox(r.get("polygon") or []),
+                "ceiling_h_m": _ceiling_h(r),
             }
             for r in rooms
         ],
         "vertices_total": sum(len(r.get("polygon") or []) for r in rooms),
         "area_total_m2": area_total,
         "furniture_candidates": meta.get("furniture"),
+        "furniture": _furniture_block(spaces),
+        "main_room": _main_room(ir),
         "luminaires_total": len(lums),
         "luminaires_by_kind": dict(collections.Counter(lm.get("kind", "unknown") for lm in lums)),
         "luminaires_by_shape": dict(collections.Counter(shape_of(lm.get("symbol", "")) for lm in lums)),

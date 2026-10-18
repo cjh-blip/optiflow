@@ -51,7 +51,8 @@ def test_plan_summary_via_registry():
     assert r["vertices_total"] == 17
     assert r["area_total_m2"] == 116.03
     assert r["luminaires_total"] == 28
-    assert r["checks_passed"] == 6
+    assert r["checks_passed"] == 7                      # 并集：六项 ＋ 轮廓点≥3（刀B）
+    assert r["furniture"]["count"] == 26 and r["main_room"]["points"] == 17  # 刀B 三块语义进契约
 
 
 def test_report_assemble_via_registry():

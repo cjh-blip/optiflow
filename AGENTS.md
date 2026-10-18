@@ -54,7 +54,7 @@
 
 
 > ⚠️ 判退出码时**别把脚本接进管道**（`if script | tail; then` 判的是 `tail` 的状态，会把门的结果遮住）；要截输出就 `set -o pipefail`。
-推之前必须过：`bash scripts/pre_push_check.sh`（① 关键词扫：本机路径硬拦、项目名公开仓硬拦 ② 全量测试 ③ 跨语言断言 ④ ruff——**版本绑 `ruff==0.15.1`**（requirements.txt 同款）；0.17 起默认规则变更会报 800+ 条，**禁止靠加宽配置做绿**，装错了先降级再跑）。
+推之前必须过：`bash scripts/pre_push_check.sh`（① 关键词扫：本机路径硬拦、项目名公开仓硬拦 ② 全量测试 ③ 跨语言断言 ④ ruff——**版本绑 `ruff==0.15.1`**（requirements.txt 同款）；0.17 起默认规则变更会报 800+ 条，**禁止靠加宽配置做绿**，装错了先降级再跑 ⑤ 跨仓同图断言：`src/parser` 收编副本 vs `dialux-compiler/src/parser` 真相源，同 fixtures 双跑逐字相同，给 `GUANGSHU_DC` 才跑、分叉即红）。
 门不过就不推。**首推教训**：本机路径与项目名曾提交进历史，改工作区无用 —— 必须改历史才干净。
 
 ## 目录关系（别搞混）
@@ -65,4 +65,9 @@
   - 本副本**冻结，不再新增**；
   - **真机链的真相源在 `dialux-compiler` 仓**（UIA 驱动、STF 导出、抽数脚本都在那边，只在 Windows 上跑）；
   - 收编方向：把真机链登记成动作接进 `commands.py`（见 `docs/action-contract.md` 的「待收编」），**不要**拿本副本当基准反向同步。
+- `src/parser/` = **解析器受控收编**（第三刀 · 刀A，2026-10-19；cjh 同日翻卡授权）：
+  - **真相源 = `dialux-compiler` 仓 `src/parser/`**（cjh 10-13 拍板：解析真相在那边，本仓不持有第二套口径）；
+  - 本仓自带一份实现供离线链进程内 import，**与真相源逐字节相同，唯一差异 = `dxf.py` 5 行 `_chain` 绝对导入改相对导入**（dc 用 `src.parser._chain`，本仓包路径是 `parser._chain`）；
+  - **同步规矩：改解析先改真相源，再同步本副本**（不要反向）；发现分叉由门 ⑤ `scripts/cross_parser_parity.py` 拦（同 fixtures 双跑逐字相同，含 room id）；
+  - `optiflow/adapters/dialux/{dxf,_chain,xlsx}.py` 自此是**薄壳**（只重导出公开面），业务代码只 import 薄壳，解析逻辑在本仓只存在于 `src/parser/`。
 - 界面两条线（Hana App 版 / 独立桌面版）是**私有仓**，不在本仓；它们共用的 HTML 面板与 `metrics.js` 口径在 App 仓，与本仓的共同接口是动作注册表。

@@ -1000,3 +1000,33 @@ UGR 观察点：CP1 计算点 1 (RUG) 16.2（最不利 240°，目标 ≤ 19，�
   跨语言断言**无/有灯库双态** 24 格×2＋报告一致全绿；三面回归 0 失败
   （faceA smoke_server 双态、faceB dev 四本含报告七块 7/7、app smoke 双态报告
   2026（未接入）/ 2096（接入）字符，旧 1976）；真结果包 × 真灯库 `-m` 端到端两行均「✓ 库内」。
+
+## 第三刀（2026-10-19 凌晨，cjh 翻卡授权）：解析受控收编＋薄壳（刀A）/ 摘要并集收编（刀B）
+
+- **刀A · 解析真相收编**：新增 `src/parser/`（`__init__/dxf/_chain/xlsx` 四件，受控收编自
+  `dialux-compiler/src/parser`——真相源不动；三件逐字节相同，`dxf.py` 与真相源**仅差 5 行**
+  `_chain` 绝对导入改相对导入，行尾随真相源）；`adapters/dialux/{dxf,_chain,xlsx}.py` 改**薄壳**
+  （680/689/45 → 52/41/8 行，只重导出＋`__all__`＋原样 CLI 抽查入口），业务代码零改动仍 import 壳；
+  旧解析逻辑在本仓只存在于 `src/parser/`（grep 归零）。`pre_push_check.sh` 新增 **⑤ 跨仓同图断言**
+  `scripts/cross_parser_parity.py`（同 fixtures 双跑逐字相同含 room id；给 `GUANGSHU_DC` 才跑、
+  分叉即红、没给则明说没跑）；AGENTS.md「目录关系」登记真相源指针与同步规矩（先改真相源再同步）。
+- **刀B · 摘要单一口径**：`plan_summary` 拆出 **`summarize_ir(ir, *, join_warnings, lum_note, viols)`
+  纯函数入口**（不读文件、不解析），`summarize_plan` 变「解析＋转调」；补进壳侧三块语义：
+  ① 家具排除双口径 `furniture{count,adopted,excluded,excluded_ids,names}`（`EXCLUDED_LINEARC` 九件柜/架）；
+  ② 每房 `bbox_m`＋`ceiling_h_m`（**z=0 视为未赋值**，与 mount 的 UNSET_Z、JS 侧 `z || null` 同口径
+  → 回落 `space.ceil_h`）；③ 单主房 `main_room`（口径＝壳侧 `room_of`，含主房灯位三数；
+  无灯位兑底可能挑家具伪空间——**照原样不收紧，要改属语义变更**）。
+  检查项**取并集**（cjh 拍）：六项 ＋ Windows 独有的「房间轮廓点 ≥ 3」（扩到全体真房间）＝**七项**；
+  契约同步（`commands.py` 描述/returns、`docs/action-contract.md` plan.summary 行）。
+- **壳侧收编（分工会话内，开发归 Mac）**：`optiflow-app` `core.summarize` 改**薄壳**（只转调
+  `summarize_ir`＋字段映射 `passed`→`pass`、`main_room`→`room`/`luminaires`；形状与既有读取方逐键对上），
+  删掉壳侧第二份几何与排除表；平台不可用给人话（env → `standalone/optiflow_repo` 快照 → 同级仓，
+  M5 打包同名约定）。三面文案同源：workbench/脸A `panel.html` 提示 七项（改一处 cp 同步）、
+  脸A `smoke_server`/`ui_check`/`tk_shell` 的硬编码 6 改为动态或 7、壳侧动作描述同改。
+- **验证（都实跑）**：平台全量 **430 passed / 3 skipped**（427 刀A 后 → 430 刀B +3）＋ ruff 0 ＋
+  门⑤ 四组双跑逐字相同；**推送门退出码 0**（含③ 跨语言断言两组）；壳侧 pytest **10/10**（流 7 ＋ 薄壳 3）、
+  self-check 19 动作、smoke `ok:true` **checks 7/7**、报告 2026 字符不变、ruff 存量仍 10 零新增；
+  脸A 门退出码 0（后端 0 失败、Tk 无头 `checks_passed 7`、冻结包自检 ok）＋ ui_check 真浏览器 **0 失败**；
+  脸B 门退出码 0（check_app ERROR 0/WARN 0、服务层与路由 0 失败、渲染预览七块 7/7）；
+  dc 照单 268/3 ＋ ruff 0、**仓面零改动**。未验照旧：Windows 侧三件 mjs ＋ EXE 冒烟（阶段2 同批点名）、
+  M5 打包需带 `standalone/optiflow_repo` 平台快照（含 pydantic 依赖待他们 `.exe-env` 核）。
