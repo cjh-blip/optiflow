@@ -46,7 +46,7 @@ call("plan.summary", {"dxf": "...", "config": "..."})   # 返回 dict
 
 | id | 组 | 做什么 | 必备参数 | 返回 |
 |---|---|---|---|---|
-| `plan.summary` | plan | 房间 DXF（＋灯具图＋配置）→ 摘要四数 ＋ 六项完整性检查 ＋ 校验分桶 | `dxf`, `config` | `{room_count, vertices_total, area_total_m2, furniture_candidates, luminaires_total, luminaires_by_kind, luminaires_by_shape, checks[], checks_passed, validation{}}` |
+| `plan.summary` | plan | 房间 DXF（＋灯具图＋配置）→ 摘要四数 ＋ **七项**完整性检查（六项并集＋轮廓点≥3）＋ 家具双口径/单主房 ＋ 校验分桶 | `dxf`, `config` | `{room_count, vertices_total, area_total_m2, furniture_candidates, furniture{count,adopted,excluded,excluded_ids,names}, main_room{id,name,points,area_m2,bbox_m,ceiling_h_m,luminaires{}}, luminaires_total, luminaires_by_kind, luminaires_by_shape, checks[]（七项）, checks_passed, validation{}}` |
 | `plan.light_backcalc` | plan | 选灯反推：面积＋目标照度（＋CU/MF/LPD 上限/灯数）→ 总光通量、功率天花板、单灯区间；**不排灯位、不推荐型号** | `area_m2`, `target_lux` | `{total_flux_lm, power_budget_w, per_lamp{}, params_used, state, evidence}` |
 | `ir.validate` | plan | IR 校验：jsonschema ＋ 七条业务规则 | `ir` | `{count, halt[], violations[]}` |
 | `service.import_dxf` | plan | DXF 文件 → IR ＋ 完整性检查（读文件并转 base64） | `path` | `PlatformService.import_dxf` 的返回 |

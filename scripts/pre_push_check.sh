@@ -85,6 +85,18 @@ else
 fi
 
 echo
+echo "== ⑤ 跨仓同图断言（解析器受控收编把关，给 GUANGSHU_DC 才跑）=="
+if [ -n "${GUANGSHU_DC:-}" ]; then
+  if "$PY" scripts/cross_parser_parity.py >/tmp/parity_parser.out 2>&1; then
+    tail -3 /tmp/parity_parser.out | sed 's/^/  /'
+  else
+    echo "  ✗ 收编副本与真相源分叉："; tail -12 /tmp/parity_parser.out | sed 's/^/    /'; FAIL=1
+  fi
+else
+  echo "  ⚠ 跳过（未给 GUANGSHU_DC —— src/parser 收编副本没与 dialux-compiler 真相源比过）"
+fi
+
+echo
 if [ "$FAIL" -eq 0 ]; then
   echo "════ 门通过：可以推 ════"
 else
