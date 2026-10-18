@@ -95,7 +95,14 @@ register(Command(id="dialux.parse", handler=..., group="dialux",
 
 - 登记后 `list_commands()` / CLI / `GET /commands` / 两侧壳**同一张表**都能看到并派发；
 - 默认**不许覆盖**已有 id（防手滑换实现），要换显式 `replace=True`；
-- 用途实例（2026-10-13）：Windows 侧 `optiflow-app` 用它在启动时登记真机链五动作（见 `docs` 与交接区）。
+- 用途实例：
+  - 2026-10-13：Windows 侧 `optiflow-app` 壳启动登记真机链四步
+    （`dialux.parse` / `dialux.overlay` / `dialux.inputs` / `dialux.one_shot`）；
+  - 2026-10-18（队列 E 阶段1）：同壳登记真机 UIA 五动作
+    `dialux.real.import_stf` / `place_luminaires` / `place_furniture` / `ugr` / `export_report`
+    ——经 dialux-compiler `scripts/real_action.py` 子进程执行（真相源留 dc，不收编）；
+    非 Windows 调用拿人话守卫；进度走壳内 `set_step_sink` 侧信道（**参数契约不变**）。
+    本节是外部注册的记录处；静态清单仍只列平台自登记动作。
 
 ## 待收编（有意留白，不代表遗漏）
 
@@ -103,7 +110,7 @@ register(Command(id="dialux.parse", handler=..., group="dialux",
 |---|---|---|
 | `pipeline.submit` / `.status` / `.result` / `.cancel` | 要一个 `PlatformService` 实例。**已定：注册表内惰性单例**（`commands._service()`，要换输出根就清掉它）；但 job 类动作带异步生命周期，收编要先定「job 归谁看」 | 定下 job 归属（HTTP 侧已有 `/jobs`，MCP 侧已有 `optiflow_job_*`） |
 | ~~`report.assemble_pdf`~~ | **已收编**为 `report.assemble_from_pdf`（2026-10-13） | — |
-| 真机链五动作（出 STF / 驱动 DIALux / 截图核对 / 抽数出报告 / 一条龙） | 代码在 **dialux-compiler** 仓（UIA 驱动、STF 导出、抽数），且**只能在 Windows 上跑**；跨仓收编要先定「链子归哪个仓管」 | Windows 版形态定型（计划 M3）之后 |
+| 真机链老五件（出 STF / 驱动 DIALux / 截图核对 / 抽数出报告 / 一条龙） | 已大半以**壳侧登记**落地（2026-10-13 四步；2026-10-18 阶段1 再加 `dialux.real.*` 五动作经 dc runner 子进程）；实现本体仍在 **dialux-compiler** 仓 | **不打算收编**：真相源留 dc，平台只认动作表（跨仓子进程已是终态） |
 | 指标板（六项）的**单一实现** | JS 侧已有 `metrics.js`、Python 侧已有 `report_assembler`；**跨语言一致性断言已落地**（`optiflow-workbench-dev/metrics-parity.mjs`，18 格全同） | 若要再收成一处，得先决定 JS 那份是否退化成「只有渲染」 |
 
 ## 与其他前端的关系（现状 → 目标）
@@ -121,3 +128,4 @@ register(Command(id="dialux.parse", handler=..., group="dialux",
 - 2026-10-13（M2.5）：补 2 个与 HTTP 端点同形的动作（共 8 个）；`api.py` 的 `/import-dxf`、`/assemble-report` 改走 `call()`（HTTP 契约不变，`tests/test_api.py` 50 项全绿）；`mcp.py` 的工具表由本表**生成**（不再手写第二份）；新增「回执约定」一节。
   同日由跨语言一致性断言抓出并修掉一处口径措辞差（无判据时：`—` → `—（标准未规定）`，与 JS 侧逐字一致）。
 - 2026-10-16：新增 `plan.light_backcalc`（选灯反推尺子）：利用系数法反推总光通量/功率天花板/单灯区间，纯函数＋测试；两条护栏（不排灯位、不推荐型号）写进 description。清单同时补上此前漏列的 `report.metrics`（动作 2026-10-13 已登记，清单当时未同步）。
+- 2026-10-18（队列 E 阶段1）：壳侧新增 `dialux.real.*` 五动作（`app_real.py` 经 `register()` 登记，self-check 动作 14 → 19）：子进程走 dc `scripts/real_action.py`（JSONL step/receipt 契约），非 Windows 与缺仓两道人话守卫，进度走 `set_step_sink` 侧信道（参数与回执 shape 不变）；本静态清单仍只列平台自登记的 10 个，外部注册详见上节。
