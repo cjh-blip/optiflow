@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import copy
+import json
 
 from optiflow.report_assembler import assemble_report
 
@@ -257,3 +258,130 @@ def test_http_assemble_report_reports_missing_file(tmp_path) -> None:
     finally:
         server.shutdown()
         server.server_close()
+
+
+# ============================================================ 灯库接入（队列 D，2026-10-18）
+#
+# 护栏：只校验、不推荐、不排灯位；未接入/坏档如实标未取证，不编数。
+
+def _write_lamp_lib(tmp_path, items, version="lamp-library-v0"):
+    path = tmp_path / "灯库_v0.json"
+    path.write_text(json.dumps({"version": version, "items": items}, ensure_ascii=False),
+                    encoding="utf-8")
+    return str(path)
+
+
+def test_lamp_check_column_and_status(tmp_path, monkeypatch) -> None:
+    """接入点 A·有结果包：sku 命中 → 新增「灯库校验」列逐行标 ✓，状态行给计数。"""
+    lib = _write_lamp_lib(tmp_path, [{
+        "sku": "200078912", "manufacturer": "Acme", "model": "X", "kind": "point",
+        "flux_lm": 4200.0, "power_w": 36.0, "efficacy_lm_w": 124.5,
+        "source": "目录册 P12", "notes": ""}])
+    monkeypatch.setenv("GUANGSHU_LAMP_LIB", lib)
+    text = assemble_report(copy.deepcopy(PACKAGE), criteria=CRITERIA)
+    assert "| 依据（选灯反推） | 灯库校验 |" in text
+    assert "✓ 库内（Φ 4200 lm／P 36 W）" in text
+    assert "灯库校验：✓ 库内 1 行 ／ 库外 0 行" in text
+    assert "只校验不推荐、不排灯位" in text
+    # 重跑逐字稳定（灯库接入不引入随机性）
+    assert text == assemble_report(copy.deepcopy(PACKAGE), criteria=CRITERIA)
+
+
+def test_lamp_mismatch_and_outside_flagged(tmp_path, monkeypatch) -> None:
+    """数值差 >1% 标⚠带两边数；sku 不在库 → 库外（如实，不判错）。"""
+    mismatch = _write_lamp_lib(tmp_path, [{
+        "sku": "200078912", "flux_lm": 4000.0, "power_w": 36.0,
+        "source": "目录册 P12"}])
+    monkeypatch.setenv("GUANGSHU_LAMP_LIB", mismatch)
+    text = assemble_report(copy.deepcopy(PACKAGE), criteria=CRITERIA)
+    assert "⚠ 库内值不符：Φ 库 4000 lm vs 包 4200 lm" in text
+
+    outside = _write_lamp_lib(tmp_path, [{"sku": "别的货号", "flux_lm": 100.0,
+                                           "power_w": 10.0, "source": "目录册 P1"}])
+    monkeypatch.setenv("GUANGSHU_LAMP_LIB", outside)
+    text = assemble_report(copy.deepcopy(PACKAGE), criteria=CRITERIA)
+    assert "库外（无据可校）" in text
+    assert "灯库校验：✓ 库内 0 行 ／ 库外 1 行" in text
+
+
+def test_lamp_absent_keeps_old_table_and_marks(tmp_path, monkeypatch) -> None:
+    """未接入：表头不加列、内容与旧版同构，只多一行未接入状态（可发现、不打扰）。"""
+    monkeypatch.delenv("GUANGSHU_LAMP_LIB", raising=False)
+    text = assemble_report(copy.deepcopy(PACKAGE), criteria=CRITERIA)
+    assert "| 依据（选灯反推） | 灯库校验 |" not in text
+    assert "灯库校验：未接入" in text
+    assert "需 Φ 72519 lm；配 48×4200＝201600 lm ✓" in text   # 旧依据列逐字不动
+
+
+def test_lamp_basis_fallback_uses_library_values(tmp_path, monkeypatch) -> None:
+    """接入点 B：结果包缺 Φ/P 而库有据 → 依据列改用灯库额定值并标来源。"""
+    lib = _write_lamp_lib(tmp_path, [{
+        "sku": "200078912", "flux_lm": 4200.0, "power_w": 36.0, "source": "目录册 P12"}])
+    monkeypatch.setenv("GUANGSHU_LAMP_LIB", lib)
+    pkg = copy.deepcopy(PACKAGE)
+    pkg["luminaires"][0].pop("flux_lm")
+    pkg["luminaires"][0].pop("power_w")
+    text = assemble_report(pkg, criteria=CRITERIA)
+    assert "配 48×4200＝201600 lm ✓〔灯库额定Φ＋灯库额定P〕" in text
+    assert "P 1728 W > 上限 754.2 W ✗" in text                # 库值参与功率对照
+    # 库也补不上 → 仍写未取证（不编数）
+    assert "灯库校验：✓ 库内 1 行" in text
+
+
+def test_lamp_preselect_with_library(tmp_path, monkeypatch) -> None:
+    """接入点 A·无灯具列表：灯库预选型＝候选×反推需求，行序不排序、盏数=⌈需Φ÷Φ⌉。"""
+    lib = _write_lamp_lib(tmp_path, [
+        {"sku": "LMP-A", "manufacturer": "Acme", "model": "Panel-36", "kind": "point",
+         "flux_lm": 4200.0, "power_w": 36.0, "efficacy_lm_w": 116.7, "source": "目录册 P12"},
+        {"sku": "LMP-B", "manufacturer": "Bee", "model": "Tube-18", "kind": "linear",
+         "flux_lm": 1800.0, "power_w": 18.0, "efficacy_lm_w": 100.0, "source": "实测链"},
+    ])
+    monkeypatch.setenv("GUANGSHU_LAMP_LIB", lib)
+    pkg = copy.deepcopy(PACKAGE)
+    pkg["luminaires"] = []
+    text = assemble_report(pkg, criteria=CRITERIA)
+    assert "灯库预选型" in text and "按需最少盏数" in text
+    assert "不排序、不推荐、不排灯位" in text
+    assert "| 18 盏 |" in text                                # ⌈72519÷4200⌉ = 18
+    assert "648 W ≤ 天花板 754.2 W ✓" in text                 # 18×36 ≤ 6.5×116.03
+    assert "| 41 盏 |" in text                                # ⌈72519÷1800⌉ = 41
+    assert "738 W ≤ 天花板 754.2 W ✓" in text                 # 41×18
+    assert "出处：" in text and "目录册 P12" in text           # 证据链进报告
+
+
+def test_lamp_preselect_without_library_keeps_original(tmp_path, monkeypatch) -> None:
+    """无库：保留原未取证行，另标未接入（预选型不硬撑）。"""
+    monkeypatch.delenv("GUANGSHU_LAMP_LIB", raising=False)
+    pkg = copy.deepcopy(PACKAGE)
+    pkg["luminaires"] = []
+    text = assemble_report(pkg, criteria=CRITERIA)
+    assert "> 未取证：结果包中没有可用的灯具列表。" in text
+    assert "灯库校验：未接入" in text
+    assert "灯库预选型" not in text
+
+
+def test_lamp_preselect_basis_missing_is_unevidenced(tmp_path, monkeypatch) -> None:
+    """缺面积 → 无法比需求：预选型标未取证并说清原因（库在也不编数）。"""
+    lib = _write_lamp_lib(tmp_path, [{"sku": "LMP-A", "flux_lm": 4200.0,
+                                       "power_w": 36.0, "source": "目录册 P12"}])
+    monkeypatch.setenv("GUANGSHU_LAMP_LIB", lib)
+    pkg = copy.deepcopy(PACKAGE)
+    pkg["luminaires"] = []
+    pkg["rooms"] = []
+    text = assemble_report(pkg, criteria=CRITERIA)
+    assert "灯库预选型：未取证（缺结果包房间面积" in text
+
+
+def test_lamp_preselect_boundaries(tmp_path, monkeypatch) -> None:
+    """边界：单灯通量非正 → 盏数未取证；没给 LPD → 功率对照给占位不给数。"""
+    lib = _write_lamp_lib(tmp_path, [{"sku": "LMP-0", "flux_lm": 0, "power_w": 5.0,
+                                       "source": "目录册"}])
+    monkeypatch.setenv("GUANGSHU_LAMP_LIB", lib)
+    crit_no_lpd = copy.deepcopy(CRITERIA)
+    scene = crit_no_lpd["scenes"]["meeting_room"]
+    scene["criteria"] = [c for c in scene["criteria"] if c["metric"] != "lpd_target"]
+    pkg = copy.deepcopy(PACKAGE)
+    pkg["luminaires"] = []
+    text = assemble_report(pkg, criteria=crit_no_lpd)
+    assert "未取证（缺单灯通量）" in text
+    assert "—（未给 LPD 上限）" in text

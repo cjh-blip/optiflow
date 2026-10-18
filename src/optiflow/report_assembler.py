@@ -8,12 +8,19 @@
 5. 价格          6. 节能                7. 结论与未取证项
 
 六项指标口径固定，不增不减：维持平均照度 / UGR / U₀ / Ra / CCT / LPD。
+
+灯库接入（可选）：灯具选型列表可对灯库 JSON 逐行校验、缺值时按库值补依据；
+路径由参数或环境变量 GUANGSHU_LAMP_LIB 给出，未接入如实标注。
+护栏同 plan.light_backcalc：只校验、不推荐、不排灯位。
 """
 from __future__ import annotations
 
+import math
 from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
+
+from optiflow.lamp_library import load_lamp_library, lookup
 
 __all__ = ["assemble_report", "metrics_rows"]
 
@@ -111,17 +118,33 @@ def _backcalc_basis(crit: Optional[Dict[str, Any]], pkg: Dict[str, Any]) -> Dict
     return {"ok": True, "area": area, "target": target, "lpd_cap": lpd_cap, "bc": bc}
 
 
-def _basis_cell(item: Dict[str, Any], basis: Dict[str, Any]) -> str:
-    """选型表单行的依据格：本行配得够不够（总通量必比，功率只在有上限时比）。"""
+def _basis_cell(item: Dict[str, Any], basis: Dict[str, Any],
+                lib_row: Optional[Dict[str, Any]] = None) -> str:
+    """选型表单行的依据格：本行配得够不够（总通量必比，功率只在有上限时比）。
+
+    接入点 B（灯库回退）：结果包缺单灯通量/功率、而灯库有该 sku 的可追溯值时，
+    改用灯库额定值参与比对并在格内标注来源；库也补不上才写未取证。
+    无回退时输出与旧版逐字相同。
+    """
     if not basis.get("ok"):
         return f"未取证（{basis.get('why')}）"
     n, flux, power = item.get("count"), item.get("flux_lm"), item.get("power_w")
+    tags: List[str] = []
+    if not isinstance(flux, (int, float)) and lib_row is not None \
+            and isinstance(lib_row.get("flux_lm"), (int, float)):
+        flux = lib_row["flux_lm"]
+        tags.append("灯库额定Φ")
+    if not isinstance(power, (int, float)) and lib_row is not None \
+            and isinstance(lib_row.get("power_w"), (int, float)):
+        power = lib_row["power_w"]
+        tags.append("灯库额定P")
     total = basis["bc"].get("total_flux_lm")
     if not n or not isinstance(flux, (int, float)) or total is None:
         return "未取证（缺数量或光通量）"
     supply = n * flux
+    tag = f"〔{'＋'.join(tags)}〕" if tags else ""
     bits = [f"需 Φ {_fmt_num(total, 'lm')}；配 {n}×{_fmt_num(flux)}＝{_fmt_num(round(supply))} lm "
-            f"{'✓' if supply >= total else '✗'}"]
+            f"{'✓' if supply >= total else '✗'}{tag}"]
     budget = basis["bc"].get("power_budget_w")
     if budget is not None and isinstance(power, (int, float)):
         p = round(n * power, 1)
@@ -130,22 +153,99 @@ def _basis_cell(item: Dict[str, Any], basis: Dict[str, Any]) -> str:
     return "；".join(bits)
 
 
-def _luminaire_block(pkg: Dict[str, Any], crit: Optional[Dict[str, Any]] = None) -> str:
+def _library_check_cell(item: Dict[str, Any], lib: Dict[str, Any]) -> str:
+    """接入点 A·逐行对库校验：sku 命中就核数值（1% 容差吸收实测链与库额定的取整差）。
+    未命中如实写库外——库外不是错误，只是无据可校。"""
+    row = lookup(lib, item.get("sku"))
+    if row is None:
+        return "库外（无据可校）"
+    diffs: List[str] = []
+    for key, label, unit in (("flux_lm", "Φ", "lm"), ("power_w", "P", "W")):
+        pv, lv = item.get(key), row.get(key)
+        if isinstance(pv, (int, float)) and isinstance(lv, (int, float)) and lv:
+            if abs(pv - lv) / abs(lv) > 0.01:
+                diffs.append(f"{label} 库 {_fmt_num(lv, unit)} vs 包 {_fmt_num(pv, unit)}")
+    if diffs:
+        return "⚠ 库内值不符：" + "；".join(diffs)
+    return f"✓ 库内（Φ {_fmt_num(row.get('flux_lm'), 'lm')}／P {_fmt_num(row.get('power_w'), 'W')}）"
+
+
+def _preselect_block(lib: Optional[Dict[str, Any]], lib_status: str,
+                     basis: Dict[str, Any]) -> List[str]:
+    """接入点 A·预选型：结果包无灯具列表时，拿灯库候选 × 反推需求出比对表。
+
+    护栏（与 plan.light_backcalc 同）：行序＝灯库录入顺序（不排序）、不推荐、不排灯位；
+    最少盏数＝⌈需Φ÷单灯Φ⌉；功率对照只在给了 LPD 上限时给，缺的写未取证。
+    """
+    if lib is None:
+        return ["> 未取证：结果包中没有可用的灯具列表。", f"> 灯库校验：{lib_status}。"]
+    if not basis.get("ok"):
+        return ["> 未取证：结果包中没有可用的灯具列表。",
+                f"> 灯库预选型：未取证（{basis.get('why')}，无法比对需求；灯库已读 {len(lib['items'])} 条）。"]
+    need = basis["bc"].get("total_flux_lm")
+    budget = basis["bc"].get("power_budget_w")
+    lines = ["> 结果包无灯具列表，下表为**灯库预选型**（按灯库录入顺序，不排序、不推荐、不排灯位）：", "",
+             "| 型号 | 制造商 | 编号 | 单灯功率 | 光通量 | 光效 | 按需最少盏数 | 盏数总功率对照 |",
+             "|---|---|---|---:|---:|---:|---:|---|"]
+    srcs: List[str] = []
+    for row in lib["items"]:
+        if not isinstance(row, dict):
+            continue
+        flux, power = row.get("flux_lm"), row.get("power_w")
+        n_int: Optional[int] = None
+        if isinstance(flux, (int, float)) and flux > 0 and isinstance(need, (int, float)) and need > 0:
+            n_int = math.ceil(need / flux)
+        n_cell = "未取证（缺单灯通量）" if n_int is None else f"{n_int} 盏"
+        if budget is None:
+            p_cell = "—（未给 LPD 上限）"
+        elif n_int is None:
+            p_cell = "未取证"
+        elif not isinstance(power, (int, float)):
+            p_cell = "未取证（缺单灯功率）"
+        else:
+            p = round(n_int * power, 1)
+            p_cell = (f"{_fmt_num(p, 'W')} {'≤' if p <= budget else '>'} 天花板 {_fmt_num(budget, 'W')} "
+                      f"{'✓' if p <= budget else '✗'}")
+        lines.append(f"| {row.get('model') or '—'} | {row.get('manufacturer') or '—'} | {row.get('sku') or '—'} "
+                     f"| {_fmt_num(power, 'W')} | {_fmt_num(flux, 'lm')} | {_fmt_num(row.get('efficacy_lm_w'), 'lm/W')} "
+                     f"| {n_cell} | {p_cell} |")
+        if row.get("source"):
+            srcs.append(f"- {row.get('sku')}：{row['source']}")
+    lines.append("")
+    if srcs:
+        lines += ["出处：", *srcs, ""]
+    tail = f"口径：灯库 {lib.get('version') or '—'} × 反推需求（需 Φ {_fmt_num(need, 'lm')}"
+    if budget is not None:
+        tail += f"，功率天花板 {_fmt_num(budget, 'W')}"
+    tail += "）；最少盏数＝⌈需Φ÷单灯Φ⌉；灯库只校验不推荐、不排灯位。"
+    lines.append(tail)
+    return lines
+
+
+def _luminaire_block(pkg: Dict[str, Any], crit: Optional[Dict[str, Any]] = None,
+                     lamp_lib: Optional[str] = None) -> str:
+    lib, lib_status = load_lamp_library(lamp_lib)
     luminaires = pkg.get("luminaires") or []
     lines = [_block_header("1. 灯具选型列表"), ""]
     if not luminaires or luminaires[0].get("count") is None:
-        lines.append("> 未取证：结果包中没有可用的灯具列表。")
-        return "\n".join(lines)
+        return "\n".join(lines + _preselect_block(lib, lib_status, _backcalc_basis(crit, pkg)))
     basis = _backcalc_basis(crit, pkg)
-    lines.append("| 型号 | 制造商 | 编号 | 数量 | 单灯功率 | 光通量 | 发光效率 | 依据（选灯反推） |")
-    lines.append("|---|---|---|---:|---:|---:|---:|---|")
+    head = "| 型号 | 制造商 | 编号 | 数量 | 单灯功率 | 光通量 | 发光效率 | 依据（选灯反推） |"
+    sep = "|---|---|---|---:|---:|---:|---:|---|"
+    if lib is not None:
+        head += " 灯库校验 |"
+        sep += "---|"
+    lines += [head, sep]
     for item in luminaires:
-        lines.append(
+        cells = (
             f"| {item.get('model') or '—'} | {item.get('manufacturer') or '—'} | {item.get('sku') or '—'} "
             f"| {_fmt_num(item.get('count'), '件')} | {_fmt_num(item.get('power_w'), 'W')} "
             f"| {_fmt_num(item.get('flux_lm'), 'lm')} | {_fmt_num(item.get('efficacy_lm_w'), 'lm/W')} "
-            f"| {_basis_cell(item, basis)} |"
+            f"| {_basis_cell(item, basis, lookup(lib, item.get('sku')))} |"
         )
+        if lib is not None:
+            cells += f" {_library_check_cell(item, lib)} |"
+        lines.append(cells)
     positions = (luminaires[0].get("positions") or []) if luminaires else []
     if positions:
         lines.append("")
@@ -166,6 +266,15 @@ def _luminaire_block(pkg: Dict[str, Any], crit: Optional[Dict[str, Any]] = None)
                      f" → 功率天花板 {_fmt_num(bc.get('power_budget_w'), 'W')}")
         lines.append("")
         lines.append(tail + "（口径＝plan.light_backcalc：不排灯位、不推荐型号）")
+    # 灯库状态行：接入与否都留一行，读报告的人一眼看到校验开没开（接入点 A/B 状态均在此）
+    if lib is not None:
+        hits = sum(1 for it in luminaires if lookup(lib, it.get("sku")))
+        lines.append("")
+        lines.append(f"灯库校验：✓ 库内 {hits} 行 ／ 库外 {len(luminaires) - hits} 行"
+                     f"（灯库 {lib.get('version') or '—'}，只校验不推荐、不排灯位）。")
+    else:
+        lines.append("")
+        lines.append(f"灯库校验：{lib_status}。")
     return "\n".join(lines)
 
 
@@ -405,10 +514,13 @@ def assemble_report(
     render_images: Optional[Sequence[Any]] = None,
     project_name: str = "会议室照明设计",
     generated_on: Optional[str] = None,
+    lamp_lib: Optional[str] = None,
 ) -> str:
     """结果包（＋判据表/价格/图件）→ 报告 Markdown。
 
     ``render_images`` 元素为路径字符串或 ``{path, caption}``（带图注）。
+    ``lamp_lib``＝灯库 JSON 路径；缺省读环境变量 ``GUANGSHU_LAMP_LIB``，
+    都没有则灯库校验如实标未接入（不编数）。
     """
     crit = _criteria_index(criteria)
     source_pdf = (package.get("artifacts") or {}).get("report_pdf")
@@ -423,7 +535,7 @@ def assemble_report(
         "---",
         "",
     ]
-    lines.append(_luminaire_block(package, crit))
+    lines.append(_luminaire_block(package, crit, lamp_lib))
     lines.append("")
     lines.append("---")
     lines.append("")
@@ -508,6 +620,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("-o", "--out", help="输出 Markdown 路径（缺省打印到 stdout）")
     ap.add_argument("--criteria", help="判据表 JSON 路径")
     ap.add_argument("--price", help="价格 JSON 路径（可选）")
+    ap.add_argument("--lamp-lib", help="灯库 JSON 路径（缺省读环境变量 GUANGSHU_LAMP_LIB）")
     ap.add_argument("--image", action="append", default=None, help="渲染图路径（可多次）")
     ap.add_argument("--docx", help="同时导出 DOCX（需要 pypandoc_binary）")
     ap.add_argument("--project-name", default="会议室照明设计")
@@ -519,6 +632,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     text = assemble_report(
         package, criteria=criteria, price=price,
         render_images=args.image, project_name=args.project_name,
+        lamp_lib=args.lamp_lib,
     )
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")
