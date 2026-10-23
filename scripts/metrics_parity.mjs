@@ -15,6 +15,8 @@
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import { delimiter } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // 路径一律由环境变量给，脚本里不写任何本机路径（这是会公开的仓）。
 //   GUANGSHU_METRICS_JS  JS 侧实现（Hana App 仓的 ui/assets/metrics.js）—— 必填
@@ -24,7 +26,7 @@ import fs from "node:fs";
 //   GUANGSHU_REPO       optiflow 仓库根 —— 默认取本脚本的上一级目录
 const PY = process.env.GUANGSHU_PY || "python3";
 const OPTIFLOW_REPO = process.env.GUANGSHU_REPO
-  || new URL("..", import.meta.url).pathname.replace(/\/$/, "");
+  || fileURLToPath(new URL("..", import.meta.url)).replace(/[/\\]$/, "");
 
 function need(name, hint) {
   const v = process.env[name];
@@ -39,7 +41,7 @@ const METRICS_JS = need("GUANGSHU_METRICS_JS", "JS 侧 metrics.js 的路径（�
 const PKG = need("GUANGSHU_PKG", "结果包 JSON 的路径");
 const CRIT = process.env.GUANGSHU_CRIT || "";
 
-const { metricsBoard } = await import(METRICS_JS);
+const { metricsBoard } = await import(pathToFileURL(METRICS_JS).href);
 
 let failures = 0;
 const check = (name, ok, detail = "") => {
@@ -52,7 +54,7 @@ function pyCall(commandId, params) {
   const argv = ["-m", "optiflow.commands", "call", commandId, "--params", JSON.stringify(params)];
   const out = execFileSync(PY, argv, {
     cwd: OPTIFLOW_REPO, encoding: "utf-8",
-    env: { ...process.env, PYTHONPATH: `${OPTIFLOW_REPO}/src:${OPTIFLOW_REPO}` },
+    env: { ...process.env, PYTHONPATH: [`${OPTIFLOW_REPO}/src`, OPTIFLOW_REPO].join(delimiter) },
   });
   const payload = JSON.parse(out.trim().split("\n").pop());
   if (!payload.ok) throw new Error(payload.error);
