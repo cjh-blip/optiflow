@@ -1037,3 +1037,11 @@ UGR 观察点：CP1 计算点 1 (RUG) 16.2（最不利 240°，目标 ≤ 19，�
 - **M5 发布件 v0.2 → v0.4**：脱敏九处＋附批六处＋criteria 键链中性化；快照瘦身（scrub 工具 196 行、28 词词表、词边界＋按行 CJK 分流＋门脚本硬排除＋幂等）；`direct_url.json` 打包真删 1 个；成品 `光枢图纸导入_v0.4_win64.zip` 77,147,699 B / 2133 条目。
 - **门禁实测（2026-10-24）**：dc 340 passed / 3 skipped、ruff 0；app 20 passed（Windows 同值 19+1）；平台跟语言断言 24 格全同；打包后复扫 `NON-EXEMPT = 0`。
 - **未完成**：干净机双击验收（cjh）、阵列布灯（功能缺口）、平台套件 `test_dxf_cli_entry_still_prints_ir` 环境红（ezdxf skipif 守卫）。
+
+## 2026-10-26 · 收口轮（M5 收官清账）
+
+- **三笔推送**：`a283f11`（optiflow-desktop 统筹规则）、`91816ec`（本仓 10-23 真机链与 v0.4 口径回填）、`0e29bf2`（dialux-compiler 门禁口径）。
+- **门禁复跑（本机实测）**：本仓 **430 passed / 3 skipped**（76s）、ruff 0；dc **340 passed / 3 skipped**（9.5s）、ruff 0；optiflow-desktop 推送门四项全过（Tk 无头 smoke 因未给 `GUANGSHU_PKG` 跳过）。
+- **口径修正**：dc KANBAN 权威表行原停 10-19 的 278/3，下方注记把 340 误拆成「337 passed + 3 skipped」，按实测改为 **340 passed / 3 skipped（总 343）**，历史数字保留。
+- **收口后状态**：五仓工作树干净、与远端 0/0（desktop / workbench / app / optiflow / dialux-compiler）。
+- **转挂三条**：干净机双击验收（cjh＋Windows 侧）、`0.1.1` 回执键（需重建包，碰定版红线，先定方案）、平台套件 `test_dxf_cli_entry_still_prints_ir` 环境红（ezdxf skipif，Windows 侧修，Mac 无现役仓）。
