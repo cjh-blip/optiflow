@@ -111,7 +111,7 @@ register(Command(id="dialux.parse", handler=..., group="dialux",
 | `pipeline.submit` / `.status` / `.result` / `.cancel` | 要一个 `PlatformService` 实例。**已定：注册表内惰性单例**（`commands._service()`，要换输出根就清掉它）；但 job 类动作带异步生命周期，收编要先定「job 归谁看」 | 定下 job 归属（HTTP 侧已有 `/jobs`，MCP 侧已有 `optiflow_job_*`） |
 | ~~`report.assemble_pdf`~~ | **已收编**为 `report.assemble_from_pdf`（2026-10-13） | — |
 | 真机链老五件（出 STF / 驱动 DIALux / 截图核对 / 抽数出报告 / 一条龙） | 已大半以**壳侧登记**落地（2026-10-13 四步；2026-10-18 阶段1 再加 `dialux.real.*` 五动作经 dc runner 子进程）；实现本体仍在 **dialux-compiler** 仓 | **不打算收编**：真相源留 dc，平台只认动作表（跨仓子进程已是终态） |
-| 指标板（六项）的**单一实现** | JS 侧已有 `metrics.js`、Python 侧已有 `report_assembler`；**跨语言一致性断言已落地**（`optiflow-workbench-dev/metrics-parity.mjs`，18 格全同） | 若要再收成一处，得先决定 JS 那份是否退化成「只有渲染」 |
+| 指标板（六项）的**单一实现** | JS 侧已有 `metrics.js`、Python 侧已有 `report_assembler`；**跨语言一致性断言已落地**（`scripts/metrics_parity.mjs`，24 格全同：6 行 × 4 列、带/不带判据表两组；2026-10-24 回流为 POSIX/Windows 双通） | 若要再收成一处，得先决定 JS 那份是否退化成「只有渲染」 |
 
 ## 与其他前端的关系（现状 → 目标）
 

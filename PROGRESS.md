@@ -1030,3 +1030,10 @@ UGR 观察点：CP1 计算点 1 (RUG) 16.2（最不利 240°，目标 ≤ 19，�
   脸B 门退出码 0（check_app ERROR 0/WARN 0、服务层与路由 0 失败、渲染预览七块 7/7）；
   dc 照单 268/3 ＋ ruff 0、**仓面零改动**。未验照旧：Windows 侧三件 mjs ＋ EXE 冒烟（阶段2 同批点名）、
   M5 打包需带 `standalone/optiflow_repo` 平台快照（含 pydantic 依赖待他们 `.exe-env` 核）。
+
+## 2026-10-23 ~ 10-24 · 真机报表链全自动收敛 + M5 v0.4 收官
+
+- **真机报表链全链通（2026-10-23）**：`report-mode → print → printer → save → wait → done` 六步全绿，单跑 16.5 秒，PDF 41,584,129 B / 4 页（磁盘字节与 `report-wait ok bytes` 逐字节一致，SHA256 与页数四核通过）。此前四层洋葱逐层剥出：整步挂死 600 秒 → Add-Type 编译失败（IntPtr→UIntPtr 直转）→ 跳进程裸指针崩溃 3/3 → fnBody 拼接缺花括号；修法分别落到外部观察者（心跳停更自产码面）、硬 Fail 门、MSAA/UIA/WM_GETTEXT 换通道、format 转义。
+- **M5 发布件 v0.2 → v0.4**：脱敏九处＋附批六处＋criteria 键链中性化；快照瘦身（scrub 工具 196 行、28 词词表、词边界＋按行 CJK 分流＋门脚本硬排除＋幂等）；`direct_url.json` 打包真删 1 个；成品 `光枢图纸导入_v0.4_win64.zip` 77,147,699 B / 2133 条目。
+- **门禁实测（2026-10-24）**：dc 340 passed / 3 skipped、ruff 0；app 20 passed（Windows 同值 19+1）；平台跟语言断言 24 格全同；打包后复扫 `NON-EXEMPT = 0`。
+- **未完成**：干净机双击验收（cjh）、阵列布灯（功能缺口）、平台套件 `test_dxf_cli_entry_still_prints_ir` 环境红（ezdxf skipif 守卫）。
