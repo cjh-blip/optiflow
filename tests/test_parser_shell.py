@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -33,6 +34,10 @@ FIXTURE = REPO / "tests" / "fixtures" / "sample_room.dxf"
 # ③ 顺带的好处：缓存落到临时目录后，宿主那套缓存权限问题（受限令牌、沙箱 ACL
 #    让 `fm_path.exists()` 在 ezdxf 自己的 try 之外抛 PermissionError）也一并绕开，
 #    测试不再依赖宿主的缓存状态。
+# ④ APPDATA：装在用户级 site-packages 的包（如
+#    `C:\Users\<user>\AppData\Roaming\Python\PythonXY\site-packages`）全靠这个变量定位，
+#    隔离 env 里没有它，子进程就只看得见解释器自带的包，报 `No module named 'ezdxf'`。
+#    POSIX 上取不到值时是空字符串，对那边的行为无影响。
 _SUBPROC_HOME = tempfile.mkdtemp(prefix="optiflow-subproc-home-")
 SUBPROC_ENV = {
     "PYTHONPATH": str(REPO / "src"),
@@ -42,6 +47,7 @@ SUBPROC_ENV = {
     "PYTHONIOENCODING": "utf-8",
     "HOME": _SUBPROC_HOME,
     "USERPROFILE": _SUBPROC_HOME,
+    "APPDATA": os.environ.get("APPDATA", ""),
 }
 
 PAIRS = (
