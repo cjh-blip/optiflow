@@ -1,17 +1,18 @@
 """一次性搬运：dialux-compiler → OptiFlow（单向复制，只改 import 与包名）。
 
-源仓 D:\dev\dialux-compiler 全程只读；本脚本只写入 OptiFlow。
+源仓（Windows 侧只读副本）全程只读；本脚本只写入 OptiFlow。
 不变量：除 import / 包名引用行外，被搬文件与源文件逐行一致（可用 verify 模式自检）。
 """
 from __future__ import annotations
 
 import filecmp
+import os
 import shutil
 import sys
 from pathlib import Path
 
-SRC = Path(r"D:\dev\dialux-compiler")
-DST = Path(r"D:\dev\OptiFlow")
+SRC = Path(os.environ.get("DIALUX_COMPILER_SRC", "dialux-compiler"))
+DST = Path(os.environ.get("OPTIFLOW_DST", "OptiFlow"))
 
 # 有序替换表：旧 → 新（都是「import 或包名引用」）
 RULES = [

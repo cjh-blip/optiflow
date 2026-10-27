@@ -19,7 +19,7 @@ DEFAULT_ODA = r"C:\Program Files\ODA\ODAFileConverter 27.1.0\ODAFileConverter.ex
 
 # DIALux 启动器路径（launcher GUI 自动打开用）。安装位置本机固定，
 # 参考 get_oda_path 的优先级：override > 环境变量 DIALUX_PATH > 默认路径。
-DEFAULT_DIALUX = r"D:\dev\DIAL GmbH\DIALux\DIALux.exe"
+DEFAULT_DIALUX = r"C:\Program Files\DIAL GmbH\DIALux\DIALux.exe"
 
 
 def get_oda_path(override: Optional[str] = None) -> Path:

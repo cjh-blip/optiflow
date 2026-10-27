@@ -1016,7 +1016,7 @@ UGR 观察点：CP1 计算点 1 (RUG) 16.2（最不利 240°，目标 ≤ 19，�
   ② 每房 `bbox_m`＋`ceiling_h_m`（**z=0 视为未赋值**，与 mount 的 UNSET_Z、JS 侧 `z || null` 同口径
   → 回落 `space.ceil_h`）；③ 单主房 `main_room`（口径＝壳侧 `room_of`，含主房灯位三数；
   无灯位兑底可能挑家具伪空间——**照原样不收紧，要改属语义变更**）。
-  检查项**取并集**（cjh 拍）：六项 ＋ Windows 独有的「房间轮廓点 ≥ 3」（扩到全体真房间）＝**七项**；
+  检查项**取并集**（已拍板）：六项 ＋ Windows 独有的「房间轮廓点 ≥ 3」（扩到全体真房间）＝**七项**；
   契约同步（`commands.py` 描述/returns、`docs/action-contract.md` plan.summary 行）。
 - **壳侧收编（分工会话内，开发归 Mac）**：`optiflow-app` `core.summarize` 改**薄壳**（只转调
   `summarize_ir`＋字段映射 `passed`→`pass`、`main_room`→`room`/`luminaires`；形状与既有读取方逐键对上），
@@ -1049,7 +1049,7 @@ UGR 观察点：CP1 计算点 1 (RUG) 16.2（最不利 240°，目标 ≤ 19，�
 ## 2026-10-27 · 公开仓历史重写（两遍）＋ 推送门词表外置
 
 - **起因**：`tests/fixtures` 两份 DXF 的组码 303 带着第三方 Windows 用户名与中文目录名（`C:\Users\<第三方>\Desktop\...`），自 2026-09-25 首次快照起就在公开仓历史里。Windows 侧先跑了一遍 `filter-repo`（`24414`→`Public`），Mac 侧复核：全 blob 0 命中、与 main 逐文件只差两份 fixture、`pytest` 430/3 与改前同值。
-- **第二遍（Mac 侧做）**：验证时发现推送门 `scripts/pre_push_check.sh` 把**词表本身**硬写在仓里（硬门本机路径+用户名、软门九项含真实姓名与学校/项目/客户端关键词），且用 `':!scripts/pre_push_check.sh'` 把自己排除在扫描外——门永远发现不了自己。追加一遍改写：删掉历史里所有版本的两行词表、README 历史版本的 `D:\homework\plans` 路径、48 条提交作者邮箱归一（`cjh@prompt-forge`→`cjh1210101@gmail.com`）。
+- **第二遍（Mac 侧做）**：验证时发现推送门 `scripts/pre_push_check.sh` 把**词表本身**硬写在仓里（硬门本机路径+用户名、软门九项含真实姓名与学校/项目/客户端关键词），且用 `':!scripts/pre_push_check.sh'` 把自己排除在扫描外——门永远发现不了自己。追加一遍改写：删掉历史里所有版本的两行词表、README 历史版本的 本机 `plans` 路径、48 条提交作者邮箱归一（`cjh@prompt-forge`→`cjh1210101@gmail.com`）。
 - **门改造（新提交）**：词表改为环境变量 → 仓外文件（`$GUANGSHU_SCAN_WORDS_FILE` 或 `$HOME/.optiflow/scan-words.env`）；仓内只留通用路径模式，已脱敏的 `Public`/`<user>` 占位放行；软门取消自排除；词表缺失按未过处理。
 - **force push**：`main` 7398ece → **0bbd5b5**（49 提交＝原 48＋门改造），`v0.4.0` tag 同步重打，Release 保持（`draft=false`）。映射表 48 条在交接区 `_给Windows_20261027_材料_commit-map-final.txt`（`e3c102b` 被剪，无对应）。
 - **推后实测（重要）**：旧 commit 页未登录 **HTTP 200**、旧 SHA 的 raw 仍可取到残留字符串、按旧 SHA 直连 `git fetch` **成功**——force push 不清 GitHub 缓存与悬垂对象，真要清得走 Support 工单。

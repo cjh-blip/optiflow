@@ -7,7 +7,7 @@
 
 ## 红线
 
-1. **冻结源仓只读**：dialux-compiler 源仓（Windows 侧 `D:\dev\dialux-compiler`）冻结为保底，
+1. **冻结源仓只读**：dialux-compiler 源仓（Windows 侧 `<dialux-compiler 源仓>`）冻结为保底，
    只允许 bug 修复；通用件搬运是一次性动作，此后两仓独立演化（本仓 ⊥ 源仓）。
 2. **禁止双向同步**：搬完在源仓 KANBAN 记一笔，不来回倒。
 3. **不在别人未提交的半成品上叠改**。

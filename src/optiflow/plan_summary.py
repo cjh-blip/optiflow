@@ -214,7 +214,7 @@ def summarize_ir(ir: Dict[str, Any], *,
     area_total = round(sum(polygon_area(r["polygon"]) for r in rooms if r.get("polygon")), 2)
     area_ok = 0 < area_total < 10000
 
-    # 七项完整性检查（逐条给结论，不打包成一个布尔）：平台原六项 ＋ 并集进来的「房间轮廓点 ≥ 3」（cjh 拍）
+    # 七项完整性检查（逐条给结论，不打包成一个布尔）：平台原六项 ＋ 并集进来的「房间轮廓点 ≥ 3」（已拍板）
     checks = [
         {"name": "读到房间", "passed": len(rooms) >= 1, "detail": f"{len(rooms)} 个房间"},
         {"name": "房间环闭合",
