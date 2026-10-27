@@ -9,3 +9,9 @@ dist/
 *.egg-info/
 .idea/
 .vscode/
+
+# 测试/脚本跑出来的临时目录（隔离 env 的家目录、ezdxf 缓存、pytest 临时根）
+# 见 tests/test_parser_shell.py 注释 ③④ 与 tests/README.md
+optiflow-subproc-home-*/
+pytest-of-*/
+optiflow-ezdxf-cache-*/
