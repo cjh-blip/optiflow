@@ -11,7 +11,9 @@
    只允许 bug 修复；通用件搬运是一次性动作，此后两仓独立演化（本仓 ⊥ 源仓）。
 2. **禁止双向同步**：搬完在源仓 KANBAN 记一笔，不来回倒。
 3. **不在别人未提交的半成品上叠改**。
-4. **照明项目细节不外发、不录屏**；两仓 GitHub（cjh-blip）为唯一发布源，Windows 侧禁 push（pre-push 钩子已装）。
+4. **照明项目细节不外发、不录屏**；两仓 GitHub（cjh-blip）为唯一发布源。Windows 侧**禁推 `main`/`master`、可推 feature 分支**（pre-push 钩子只拦 main/master），
+   推前跑 `bash scripts/pre_push_check.sh`（没装依赖会跳过项并标注，不算过）。公开仓的**分支同样要过脱敏扫**，不是只有 main 要过。
+   依据：交接区 2026-10-13《规矩_GitHub管理与分支推法》（cjh 已批），钩子与文档两处口径必须一致。
 5. `D:\dev\dialux-references` 只读；`D:\dev\dialux-reconstruction-20260910` 默认不碰。
 
 ## 设计纪律

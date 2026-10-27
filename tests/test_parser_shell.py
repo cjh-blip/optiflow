@@ -9,8 +9,10 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import optiflow.adapters.dialux._chain as shell_chain
@@ -22,6 +24,31 @@ import parser.xlsx as impl_xlsx
 
 REPO = Path(__file__).resolve().parent.parent
 FIXTURE = REPO / "tests" / "fixtures" / "sample_room.dxf"
+
+# 子进程跑的是**完全隔离**的 env（不是继承后追加），所以与平台相关的三件事得自己填：
+# ① PYTHONUTF8 / PYTHONIOENCODING：隔离 env 里没有 locale 配置，Windows 下解释器按
+#    cp936 输出，读取端却按 UTF-8 解 → UnicodeDecodeError，stderr 跟着变 None，
+#    `proc.stderr[-2000:]` 连带 TypeError，报错位置离真因很远。这里显式钉死 UTF-8。
+# ② HOME / USERPROFILE：ezdxf 在 import 阶段就要定缓存与配置目录
+#    （`_options.py` 的 `Path("~").expanduser()`），没有家目录直接 RuntimeError。
+# ③ 顺带的好处：缓存落到临时目录后，宿主那套缓存权限问题（受限令牌、沙箱 ACL
+#    让 `fm_path.exists()` 在 ezdxf 自己的 try 之外抛 PermissionError）也一并绕开，
+#    测试不再依赖宿主的缓存状态。
+# ④ APPDATA：装在用户级 site-packages 的包（如
+#    `C:\Users\<user>\AppData\Roaming\Python\PythonXY\site-packages`）全靠这个变量定位，
+#    隔离 env 里没有它，子进程就只看得见解释器自带的包，报 `No module named 'ezdxf'`。
+#    POSIX 上取不到值时是空字符串，对那边的行为无影响。
+_SUBPROC_HOME = tempfile.mkdtemp(prefix="optiflow-subproc-home-")
+SUBPROC_ENV = {
+    "PYTHONPATH": str(REPO / "src"),
+    "PATH": "/usr/bin:/bin",
+    "SYSTEMROOT": "C:\\Windows" if sys.platform == "win32" else "",
+    "PYTHONUTF8": "1",
+    "PYTHONIOENCODING": "utf-8",
+    "HOME": _SUBPROC_HOME,
+    "USERPROFILE": _SUBPROC_HOME,
+    "APPDATA": os.environ.get("APPDATA", ""),
+}
 
 PAIRS = (
     (shell_dxf, impl_dxf),
@@ -77,9 +104,8 @@ def test_dxf_cli_entry_still_prints_ir() -> None:
     """薄壳保留原实现的命令行抽查入口（默认配置解析，只验吐得出 IR 结构）。"""
     proc = subprocess.run(
         [sys.executable, "-m", "optiflow.adapters.dialux.dxf", str(FIXTURE)],
-        capture_output=True, text=True, timeout=120,
-        env={"PYTHONPATH": str(REPO / "src"), "PATH": "/usr/bin:/bin",
-             "SYSTEMROOT": "C:\\Windows" if sys.platform == "win32" else ""},
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=120, env=SUBPROC_ENV,
     )
     assert proc.returncode == 0, proc.stderr[-2000:]
     ir = json.loads(proc.stdout)
@@ -89,9 +115,8 @@ def test_dxf_cli_entry_still_prints_ir() -> None:
     # 与实现侧同参双跑必须逐字相同（壳不出第二套口径）
     impl_proc = subprocess.run(
         [sys.executable, "-m", "parser.dxf", str(FIXTURE)],
-        capture_output=True, text=True, timeout=120,
-        env={"PYTHONPATH": str(REPO / "src"), "PATH": "/usr/bin:/bin",
-             "SYSTEMROOT": "C:\\Windows" if sys.platform == "win32" else ""},
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=120, env=SUBPROC_ENV,
     )
     assert impl_proc.returncode == 0, impl_proc.stderr[-2000:]
     assert proc.stdout == impl_proc.stdout, "薄壳 CLI 与实现 CLI 输出不同"

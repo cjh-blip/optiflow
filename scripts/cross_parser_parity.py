@@ -41,15 +41,22 @@ def _run(import_line: str, cwd: Path, pythonpath: str, dxf: Path, cfg: Path) -> 
     """在独立子进程里跑一侧解析器，返回 IR 的 JSON 文本（stdout）。"""
     env = {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
     env["PYTHONPATH"] = pythonpath
+    # Windows 陷阱：剥掉 PYTHON* 后子进程按系统 locale（本机 GBK）输出，而父端 text=True
+    # 默认按本机 UTF-8 解 → ReaderThread 解码失败，stdout 直接变 None，下游 strip()
+    # 报 `AttributeError: 'NoneType' object has no attribute 'strip'`，完全看不出是编码问题。
+    # 显式把子进程输出钉死 UTF-8，父端也按 UTF-8 解（两侧用同一编码，逐字节比较仍公平）。
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     code = _RUNNER.format(import_line=import_line)
     proc = subprocess.run(
         [sys.executable, "-c", code, str(dxf), str(cfg)],
-        cwd=str(cwd), env=env, capture_output=True, text=True, timeout=180,
+        cwd=str(cwd), env=env, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=180,
     )
     if proc.returncode != 0:
         raise RuntimeError(
-            f"{cwd.name} 侧解析器退出码 {proc.returncode}\n{proc.stderr.strip()[-2000:]}")
-    return proc.stdout.strip()
+            f"{cwd.name} 侧解析器退出码 {proc.returncode}\n{(proc.stderr or '').strip()[-2000:]}")
+    return (proc.stdout or "").strip()
 
 
 def _first_divergence(a: str, b: str) -> str:
