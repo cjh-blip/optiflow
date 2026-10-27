@@ -1048,8 +1048,8 @@ UGR 观察点：CP1 计算点 1 (RUG) 16.2（最不利 240°，目标 ≤ 19，�
 
 ## 2026-10-27 · 公开仓历史重写（两遍）＋ 推送门词表外置
 
-- **起因**：`tests/fixtures` 两份 DXF 的组码 303 带着第三方 Windows 用户名与中文目录名（`C:\Users\<第三方>\Desktop\...`），自 2026-09-25 首次快照起就在公开仓历史里。Windows 侧先跑了一遍 `filter-repo`（第三方用户名→`Public`），Mac 侧复核：全 blob 0 命中、与 main 逐文件只差两份 fixture、`pytest` 430/3 与改前同值。
-- **第二遍（Mac 侧做）**：验证时发现推送门 `scripts/pre_push_check.sh` 把**词表本身**硬写在仓里（硬门本机路径+用户名、软门九项含真实姓名与学校/项目/客户端关键词），且用 `':!scripts/pre_push_check.sh'` 把自己排除在扫描外——门永远发现不了自己。追加一遍改写：删掉历史里所有版本的两行词表、README 历史版本的 本机 `plans` 路径、48 条提交作者邮箱归一（`cjh@prompt-forge`→`cjh1210101@gmail.com`）。
+- **起因**：`tests/fixtures` 两份 DXF 的组码 303 带着第三方 Windows 用户名与中文目录名（用户目录路径里带着第三方用户名），自 2026-09-25 首次快照起就在公开仓历史里。Windows 侧先跑了一遍 `filter-repo`（第三方用户名→`Public`），Mac 侧复核：全 blob 0 命中、与 main 逐文件只差两份 fixture、`pytest` 430/3 与改前同值。
+- **第二遍（Mac 侧做）**：验证时发现推送门 `scripts/pre_push_check.sh` 把**词表本身**硬写在仓里（硬门本机路径+用户名、软门九项含真实姓名与学校/项目/客户端关键词），且用 `':!scripts/pre_push_check.sh'` 把自己排除在扫描外——门永远发现不了自己。追加一遍改写：删掉历史里所有版本的两行词表、README 历史版本的 本机 `plans` 路径、48 条提交作者邮箱归一（原来带本机主机名，统一到账号邮箱）。
 - **门改造（新提交）**：词表改为环境变量 → 仓外文件（`$GUANGSHU_SCAN_WORDS_FILE` 或 `$HOME/.optiflow/scan-words.env`）；仓内只留通用路径模式，已脱敏的 `Public`/`<user>` 占位放行；软门取消自排除；词表缺失按未过处理。
 - **force push**：`main` 7398ece → **0bbd5b5**（49 提交＝原 48＋门改造），`v0.4.0` tag 同步重打，Release 保持（`draft=false`）。映射表 48 条在交接区 `_给Windows_20261027_材料_commit-map-final.txt`（`e3c102b` 被剪，无对应）。
 - **推后实测（重要）**：旧 commit 页未登录 **HTTP 200**、旧 SHA 的 raw 仍可取到残留字符串、按旧 SHA 直连 `git fetch` **成功**——force push 不清 GitHub 缓存与悬垂对象，真要清得走 Support 工单。
