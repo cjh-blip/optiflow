@@ -14,6 +14,6 @@
 | 包定位 | 装在用户级 site-packages 的包消失 → `ModuleNotFoundError` | `APPDATA`（Windows） |
 
 **判据：凡按 key 白名单构造 env 的地方，都该按平台的包解析路径核一遍。**
-来历：`c21ac92`（编码＋家目录）、`cc75dec`（APPDATA），以及同一病根在
-`scripts/cross_parser_parity.py` 的 `031cd79`。再出现第四个 Windows 专用键时，
+来历（SHA 为 2026-10-27 历史重写后的编号）：`83a0121`（编码＋家目录）、`dfb8e50`（APPDATA），以及同一病根在
+`scripts/cross_parser_parity.py` 的 `f3b1400`。再出现第四个 Windows 专用键时，
 改走「显式拼当前解释器 site-packages 进 PYTHONPATH」，不再逐个补键。

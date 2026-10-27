@@ -1040,7 +1040,7 @@ UGR 观察点：CP1 计算点 1 (RUG) 16.2（最不利 240°，目标 ≤ 19，�
 
 ## 2026-10-26 · 收口轮（M5 收官清账）
 
-- **三笔推送**：`a283f11`（optiflow-desktop 统筹规则）、`91816ec`（本仓 10-23 真机链与 v0.4 口径回填）、`0e29bf2`（dialux-compiler 门禁口径）。
+- **三笔推送**：`a283f11`（optiflow-desktop 统筹规则）、`91816ec`（本仓 10-23 真机链与 v0.4 口径回填；该 SHA 已于 2026-10-27 重写作废，见下一节）、`0e29bf2`（dialux-compiler 门禁口径）。
 - **门禁复跑（本机实测）**：本仓 **430 passed / 3 skipped**（76s）、ruff 0；dc **340 passed / 3 skipped**（9.5s）、ruff 0；optiflow-desktop 推送门四项全过（Tk 无头 smoke 因未给 `GUANGSHU_PKG` 跳过）。
 - **口径修正**：dc KANBAN 权威表行原停 10-19 的 278/3，下方注记把 340 误拆成「337 passed + 3 skipped」，按实测改为 **340 passed / 3 skipped（总 343）**，历史数字保留。
 - **收口后状态**：五仓工作树干净、与远端 0/0（desktop / workbench / app / optiflow / dialux-compiler）。
