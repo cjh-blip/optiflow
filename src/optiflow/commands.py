@@ -333,7 +333,7 @@ _COMMANDS: Tuple[Command, ...] = (
         handler=_cmd_report_metrics,
         group="report",
         description="六项指标板（数据）：实测值/判据阈值/判定/出处；UGR 取最不利值",
-        returns="{rows[], count}",
+        returns="{rows[], count}｜每行含 evidence{standard,table,clause,page_pdf,page_print,quote,status}（无判据或三者不全时为 null）",
         params=(
             Param("package", "json", help="结果包：绝对路径或已解析的对象"),
             Param("criteria", "json", required=False, help="判据表：绝对路径或对象"),

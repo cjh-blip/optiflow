@@ -52,7 +52,7 @@ call("plan.summary", {"dxf": "...", "config": "..."})   # 返回 dict
 | `furniture.from_ir` | furniture | IR 家具记录 → 真机链四字段参数（`id/room_id/bbox/height_m`）；bbox 缺失从 polygon 算，room_id 空直接报错点名；口径只此一处 | `ir` | `{count, items[{id,room_id,bbox,height_m}]}` |
 | `service.import_dxf` | plan | DXF 文件 → IR ＋ 完整性检查（读文件并转 base64） | `path` | `PlatformService.import_dxf` 的返回 |
 | `report.assemble` | report | 结果包（＋判据表/价格）→ 七块 Markdown | `package` | `{markdown, chars}` |
-| `report.metrics` | report | 六项指标板（**数据**，非 markdown）：实测/阈值/判定/出处，UGR 取最不利 | `package` | `{rows[], count}` |
+| `report.metrics` | report | 六项指标板（**数据**，非 markdown）：实测/阈值/判定/出处；每行含 `evidence` 判据溯源（标准号/表号/条款号/双页码/条文原文，无判据或三者不全时 null），UGR 取最不利 | `package` | `{rows[], count}` |
 | `report.render_docx` | report | Markdown → DOCX（需 pandoc；缺了明确报错） | `markdown`, `out` | `{docx, bytes}` |
 | `service.import_dxf_b64` | plan | DXF 正文（base64）→ IR ＋ 完整性检查；**与 HTTP `/import-dxf` 同形** | `filename`, `content_base64` | 同 `import_dxf` |
 | `report.assemble_from_pdf` | report | DIALux 报表 PDF → 抽数 → 七块报告；**与 HTTP `/assemble-report` 同形** | `report_pdf` | 同 `assemble_report_pdf` |
@@ -147,4 +147,5 @@ register(Command(id="dialux.parse", handler=..., group="dialux",
   同日由跨语言一致性断言抓出并修掉一处口径措辞差（无判据时：`—` → `—（标准未规定）`，与 JS 侧逐字一致）。
 - 2026-10-16：新增 `plan.light_backcalc`（选灯反推尺子）：利用系数法反推总光通量/功率天花板/单灯区间，纯函数＋测试；两条护栏（不排灯位、不推荐型号）写进 description。清单同时补上此前漏列的 `report.metrics`（动作 2026-10-13 已登记，清单当时未同步）。
 - 2026-10-28：新增 `furniture.from_ir`（真机发现 C 的接口断点：IR 家具缺 room_id/bbox）；新增「真机前置条件」四节（空项目导入 / 另存不覆盖 / UGR 真灯前置 / 家具口径单源），对应真机实测两崩一挂一断点。
+- 2026-10-28（判据溯源）：`report.metrics` 每行增 `evidence{standard,table,clause,page_pdf,page_print,quote,status}` —— 判据表每条规则补 `clause`（条款号）与 `quote`（校对后的条文正文），报告「对标国标」段随之多一节「依据原文」（同条款去重）。三者（standard/table/clause）缺一即整条 evidence 为 null；无判据表时也为 null。两壳 `metrics.js` 同口径，跨语言断言扩到证据列（6 行 × 7 列全同）。
 - 2026-10-18（队列 E 阶段1）：壳侧新增 `dialux.real.*` 五动作（`app_real.py` 经 `register()` 登记，self-check 动作 14 → 19）：子进程走 dc `scripts/real_action.py`（JSONL step/receipt 契约），非 Windows 与缺仓两道人话守卫，进度走 `set_step_sink` 侧信道（参数与回执 shape 不变）；本静态清单仍只列平台自登记的 10 个，外部注册详见上节。
