@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -28,6 +28,13 @@ MIN_AREA_M2 = 0.05
 FURNITURE_AREA_M2 = 20.0
 #: 「墙线环」（关掉 T 形分割拼出的房间轮廓）在 Room.layer 上的标记
 WALL_RING_LAYER = "WALL-RING"
+
+#: 量级兜底时，替换后的图纸整体跨度必须落在这个带内（米）。
+#: 下限 2 m：再小就不是一间房的平面图了。上限 500 m：再大就不是室内图了。
+PLAN_SPAN_M_RANGE = (2.0, 500.0)
+#: 量级只往大一档试：真实故障形态是「header 报大了」（mm 实际按 cm 画），
+#: 报小的情形环会大 100 倍、房间照样能读出，不会走到兜底。
+_NEXT_SCALE = {"mm": "cm", "cm": "m"}
 
 _UNIT_MAP = {"mm": 0.001, "cm": 0.01, "m": 1.0, "inch": 0.0254}
 
@@ -180,28 +187,110 @@ def _entity_layer(entity) -> str:
     return (entity.dxf.layer or "").upper()
 
 
+def _header_unit(doc) -> Optional[str]:
+    """header $INSUNITS 声明的单位；缺失或无法识别时返回 None。"""
+    try:
+        raw = doc.header.get("$INSUNITS")
+    except Exception:  # noqa: BLE001 - 读 header 失败按「没声明」处理
+        return None
+    return header_insunits_to_units(raw)
+
+
+def _units_provenance(doc, cfg: ParseConfig) -> Tuple[str, str]:
+    """返回 (实际使用的绘图单位, 出处)。
+
+    出处三值：
+    - ``config``          —— 配置钉死（units_from_header=False）
+    - ``header``          —— header 有声明，按声明
+    - ``config_fallback`` —— header 没声明/不认识，退回 cfg.units（并告警）
+
+    量纲兜底的第四值 ``geometry_fallback`` 由 parse_dxf 在主解析读出 0 房间后追加。
+    """
+    if cfg.units_from_header:
+        mapped = _header_unit(doc)
+        if mapped is not None:
+            return mapped, "header"
+        raw = None
+        try:
+            raw = doc.header.get("$INSUNITS")
+        except Exception:  # noqa: BLE001
+            raw = None
+        logger.warning(
+            "header $INSUNITS missing or unknown (%s); using cfg.units=%s (建议用 --config 指定)",
+            raw, cfg.units,
+        )
+        return cfg.units, "config_fallback"
+    return cfg.units, "config"
+
+
 def _doc_units(doc, cfg: ParseConfig) -> str:
     """根据 header $INSUNITS 与 cfg.units 决定最终 DXF 绘图单位（"mm"/"cm"/"m"/"inch"）。
 
     注意：真实 DXF 的 $INSUNITS 不一定代表实际绘图单位。若用户通过 --config 指定 units，
     我们强制信任 cfg.units（cfg.units_from_header=False 即完全由 cfg 决定）。
-    当 cfg.units_from_header=True 但实际 bbox 与「典型房间尺寸量级」不符时，
-    本函数给出启发式告警，让用户通过 --config 指定单位。
+
+    header 声明与几何量级矛盾的情形（header 说 mm、实际按 cm 画的图）不在这里纠正：
+    本函数只定「按什么读」，读不出房间之后由 ``_fallback_units`` 换量级重试。
     """
-    if cfg.units_from_header:
-        raw = None
-        try:
-            raw = doc.header.get("$INSUNITS")
-        except Exception:
-            raw = None
-        mapped = header_insunits_to_units(raw)
-        if mapped is not None:
-            return mapped
-        logger.warning(
-            "header $INSUNITS missing or unknown (%s); using cfg.units=%s (建议用 --config 指定)",
-            raw, cfg.units,
-        )
-    return cfg.units
+    return _units_provenance(doc, cfg)[0]
+
+
+def _model_span_units(doc) -> Optional[float]:
+    """modelspace 几何的整体跨度（DXF 原始单位）。无几何时返回 None。"""
+    try:
+        from ezdxf import bbox as _ezbbox
+
+        ext = _ezbbox.extents(doc.modelspace(), fast=True)
+    except Exception:  # noqa: BLE001 - 量尺失败不许影响主链
+        return None
+    if not ext.has_data:
+        return None
+    span = max(abs(ext.size.x), abs(ext.size.y))
+    return span if span > 0 else None
+
+
+def _fallback_units(doc, header_unit: Optional[str],
+                    stats: Optional[Dict[str, Any]] = None) -> Tuple[Optional[str], Dict[str, Any]]:
+    """header 量级把图读小了的时候，给出大一档的量级。返回 (单位, 取证信息)，None = 不兜底。
+
+    三道门都过才兜底，也是为了让只按 header 读也不会错的图不被碰到：
+    1. 只往大一档试（mm→cm、cm→m）；
+    2. 主解析必须是「大量环被当成退化噪声丢掉」或「最大环不到 1 m²」
+       —— 一张真的用 mm 画的小图（卫生间 1.5×1.2 m）不会满足这条；
+    3. 换上去以后整体跨度要落在 2~500 m。
+    """
+    info: Dict[str, Any] = {"header_unit": header_unit, "fallback_unit": None,
+                            "span_units": None, "span_m": None, "reason": ""}
+    up = _NEXT_SCALE.get(header_unit or "")
+    if up is None:
+        info["reason"] = f"header {header_unit} 没有更大一档可试"
+        return None, info
+
+    stats = stats or {}
+    seen = int(stats.get("rings_seen") or 0)
+    degen = int(stats.get("rings_degenerate") or 0)
+    largest = float(stats.get("largest_ring_m2") or 0.0)
+    degen_ratio = (degen / seen) if seen else 0.0
+    info.update({"rings_seen": seen, "rings_degenerate": degen,
+                 "largest_ring_m2": round(largest, 4)})
+    if not seen or not (degen_ratio >= 0.5 or largest < 1.0):
+        info["reason"] = (f"环尺度不像被读小了（候选 {seen} 个、退化丢弃 {degen} 个、"
+                          f"最大环 {largest:.2f} m²），不试更大一档")
+        return None, info
+
+    span = _model_span_units(doc)
+    if span is not None:
+        span_m = span * _UNIT_MAP[up]
+        info.update({"span_units": round(span, 3), "span_m": round(span_m, 3)})
+        lo, hi = PLAN_SPAN_M_RANGE
+        if not (lo <= span_m <= hi):
+            info["reason"] = f"按 {up} 算整体跨度 {span_m:.2f} m，不在 {lo:g}~{hi:g} m 带内"
+            return None, info
+
+    info["fallback_unit"] = up
+    info["reason"] = (f"header {header_unit}：{seen} 个环里 {degen} 个被当退化噪声丢掉、"
+                      f"最大环 {largest:.2f} m²；按 {up} 算更符合平面图量级")
+    return up, info
 
 
 def extract_rooms(doc: ezdxf.document.Drawing, cfg: ParseConfig) -> List[Room]:
@@ -450,9 +539,50 @@ def extract_luminaires(doc: ezdxf.document.Drawing, cfg: ParseConfig) -> List[Lu
 
 
 def parse_dxf(path: str, cfg: Optional[ParseConfig] = None) -> dict:
-    """主入口：DXF → IR 字典（符合 ir-schema）。"""
+    """主入口：DXF → IR 字典（符合 ir-schema）。
+
+    **量纲兜底**：DXF 的 header $INSUNITS 会撒谎（实测有图 header 写 mm、几何按 cm 画）。
+    header 声明照读；但主解析一个房间都没读出来、而几何跨度又与 header 量级矛盾时，
+    换一个量级重跑一次，能读出房间就采用，并在 ``_meta.units_source`` 标 ``geometry_fallback``。
+    本来就能读出房间的图不会被这条启发式碰到（只在 rooms == 0 之后才看它）。
+    """
     cfg = cfg or ParseConfig()
     doc = ezdxf.readfile(path)
+    stats: Dict[str, Any] = {}
+    ir = _parse_doc(doc, path, cfg, stats)
+
+    if ir["_meta"]["rooms"] > 0 or not cfg.units_from_header:
+        return ir
+    header_unit = _header_unit(doc)
+    alt, info = _fallback_units(doc, header_unit, stats)
+    if alt is None or alt == ir["_meta"]["dxf_units"]:
+        if info.get("reason"):
+            logger.warning("房间数为 0；量纲兜底未启用：%s", info["reason"])
+        return ir
+
+    logger.warning("房间数为 0，试按 %s 重跑：%s", alt, info["reason"])
+    ir_alt = _parse_doc(doc, path, replace(cfg, units=alt, units_from_header=False))
+    if ir_alt["_meta"]["rooms"] <= 0:
+        logger.warning("按 %s 重跑仍是 0 房间，回退 header 的结论（%s）", alt, header_unit)
+        return ir
+
+    meta = ir_alt["_meta"]
+    meta["units_source"] = "geometry_fallback"
+    meta["units_header"] = header_unit
+    meta["units_fallback_span_m"] = info.get("span_m")
+    meta["units_fallback_reason"] = info["reason"]
+    logger.warning("量纲兜底生效：按 %s 读出 %d 个房间（header 的 %s 为 0）",
+                   alt, meta["rooms"], header_unit)
+    return ir_alt
+
+
+def _parse_doc(doc, path: str, cfg: ParseConfig,
+               stats: Optional[Dict[str, Any]] = None) -> dict:
+    """按给定配置解析并组 IR（不含量纲兜底，兜底在 parse_dxf 里）。
+
+    ``stats`` 是给兜底用的量尺（候选环数 / 退化丢弃数 / 最大环面积），不写进 IR。
+    """
+    units_used, units_source = _units_provenance(doc, cfg)
     raw_rooms = extract_rooms(doc, cfg)
     lumis = extract_luminaires(doc, cfg)
 
@@ -486,6 +616,11 @@ def parse_dxf(path: str, cfg: Optional[ParseConfig] = None) -> dict:
             logger.warning("丢弃伪房间 %s：面积 %.2f m² < 阈值 %.2f m²", r.id, a, MIN_AREA_M2)
             continue
         all_rings.append((r, a, _bbox(r.polygon)))
+
+    if stats is not None:  # 量尺：环太小是「单位被读小了 10 倍」的典型体征
+        stats["rings_seen"] = len(raw_rooms)
+        stats["rings_degenerate"] = len(raw_rooms) - len(all_rings)
+        stats["largest_ring_m2"] = max((a for _, a, _ in all_rings), default=0.0)
 
     # ---------- 房间去重（大面积环：面积差<10% 且 bbox 重叠>80% → 保留 _room_key 最优）----------
     room_rings = [(r, a, b) for r, a, b in all_rings if a > FURNITURE_AREA_M2]
@@ -663,7 +798,10 @@ def parse_dxf(path: str, cfg: Optional[ParseConfig] = None) -> dict:
             "furniture": len(kept_furn),
             "luminaires": len(lumis),
             "rooms_closed": sum(1 for r in kept_rooms if r.is_closed()),
-            "dxf_units": cfg.units,
+            "dxf_units": units_used,
+            # 单位出处：config（配置钉死）/ header（按 $INSUNITS）/ config_fallback（header 未声明）
+            # / geometry_fallback（header 与几何量级矛盾，按几何兜底）
+            "units_source": units_source,
             # 房间环上被剔除的贴墙家具凹槽/凸台数（0 = 环本来就干净）
             "room_notches_removed": notches_removed,
             # 仍带 <0.2m 短边的房间数（>0 → 可能仍混入家具轮廓，见 WARNING 日志）
