@@ -62,14 +62,21 @@ def test_evidence_tolerates_missing_pages_and_quote() -> None:
 
 
 def test_real_criteria_table_flows_through() -> None:
-    """真实判据表（App 仓那份）走一遍：四个 5.3.2、一个 6.3.5。"""
+    """真实判据表（若本机有 App 仓）走一遍：四个 5.3.2、一个 6.3.5。
+
+    路径从仓库位置推，不写死本机目录：本仓是公开仓，硬编码带项目目录名的
+    路径会撞推送门的软词表（2026-10-28 实撞过一次），也会把开发机布局泄进仓里。
+    """
     import json
 
-    crit_path = (Path.home() / "Documents/homework/projects/optiflow-app/standalone/criteria"
-                 / "criteria_meeting_room.json")
+    import pytest
+
+    from optiflow.adapters.dialux.report import _f  # noqa: F401  确认平台包已就位
+
+    projects = Path(__file__).resolve().parents[3]      # …/projects（与 optiflow-app 同级）
+    crit_path = projects / "optiflow-app" / "standalone" / "criteria" / "criteria_meeting_room.json"
     if not crit_path.is_file():
-        import pytest
-        pytest.skip(f"判据表不在本机：{crit_path}")
+        pytest.skip(f"同级仓里没有判据表，跳过：{crit_path.name}")
     criteria = json.loads(crit_path.read_text(encoding="utf-8"))
     rows = metrics_rows(_PKG, criteria)
     got = {r["key"]: (r["evidence"] or {}).get("clause") for r in rows}
