@@ -125,6 +125,19 @@ def _cmd_plan_light_backcalc(*, area_m2: float, target_lux: float,
                     lpd_cap=lpd_cap, count=count)
 
 
+def _cmd_plan_route_intent(*, text: str, context: Any = None) -> Dict[str, Any]:
+    """一句话 → 动作名＋参数＋缺项（对话层语义路由的注册表入口）。
+
+    为什么要有这个：壳侧那套路由器只出命令名、参数恒空；对话层要让「20 平米、4000K」
+    这类话里的条件被听进去，口径得有一处。参数来源逐项记在 `sources` 里，
+    路径类参数永不从话里猜（进 `missing`）。
+    """
+    from optiflow.agent_router import route
+
+    ctx = _read_json(context) if isinstance(context, str) else context
+    return route(text, ctx if isinstance(ctx, dict) else None)
+
+
 def _cmd_plan_select_luminaire(*, area_m2: float, target_lux: float,
                                count: Optional[int] = None,
                                cct_k: Optional[int] = None,
@@ -351,6 +364,19 @@ _COMMANDS: Tuple[Command, ...] = (
             Param("lpd_cap", "float", required=False, help="LPD 上限 W/㎡"),
             Param("index_path", "path", required=False, help="灯具库索引 JSON（缺省查环境变量/包内）"),
             Param("limit", "int", required=False, default=5, help="候选数量上限"),
+        ),
+    ),
+    Command(
+        id="plan.route_intent",
+        handler=_cmd_plan_route_intent,
+        group="plan",
+        description=("对话层语义路由：一句话 → 动作名＋抽到的参数＋缺项；参数来源逐项交代"
+                     "（text/context/context.ir/context.criteria），路径类参数不猜；无命中给命令清单"),
+        returns=("{command, params, missing, confidence, sources, available, note}"),
+        params=(
+            Param("text", "str", help="用户原话"),
+            Param("context", "json", required=False,
+                  help="上下文：可直接给 area_m2/target_lux/cct_k，或给 {ir, criteria} 让我推"),
         ),
     ),
     Command(
