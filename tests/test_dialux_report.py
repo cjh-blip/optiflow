@@ -359,3 +359,56 @@ def test_extract_real_report_pdf() -> None:
     for key in ("manufacturer", "sku", "model", "flux_lm", "power_w", "efficacy_lm_w"):
         assert lum[key] is not None, f"真机样本应抽到 {key}"
     assert out["artifacts"]["report_pdf"] == str(REPORT_PDF)
+
+
+# ---------------------------------------------------------------- 缺陷 3：摘要行兜底
+
+def test_summary_glare_line_falls_back_to_point_record() -> None:
+    """摘要表「眩光评估 12.1」兜底（缺陷 3）：未勾眩光计算页时也能取证，出处标 summary。"""
+    out = parse_report_text("眩光评估\n12.1\n")
+    assert out["workplane"]["ugr"] == [
+        {
+            "point": "摘要",
+            "index": None,
+            "ugr_max": 12.1,
+            "max_at_deg": None,
+            "target": None,
+            "range_from": None,
+            "range_to": None,
+            "step": None,
+            "height_m": None,
+            "source": "summary",
+        }
+    ]
+
+
+def test_glare_panel_wins_over_summary_line() -> None:
+    """眩光块优先；摘要行只在无眩光块时兜底（同一报表不能两个 UGR 混出）。"""
+    out = parse_report_text(_UGR_BLOCK + "\n眩光评估\n9.9\n")
+    pts = out["workplane"]["ugr"]
+    assert len(pts) == 1
+    assert pts[0]["ugr_max"] == 17.4
+    assert pts[0].get("source") is None
+
+
+def test_summary_line_without_number_does_not_fabricate() -> None:
+    """词汇表里解释性的「眩光评估」不带数值，不能造出假 UGR。"""
+    out = parse_report_text("眩光评估：统一眩光评价值，越低越好。\n")
+    assert out["workplane"]["ugr"] is None
+
+
+# ---------------------------------------------------------------- 缺陷 2：混色温
+
+def test_mixed_cct_lists_all_and_keeps_first() -> None:
+    """混装灯具（2700 + 4000）：cct_k 保持首值（判据可比），cct_mixed_k 列全值。"""
+    out = parse_report_text("产品数据表\n色温\n2700 K\n色温\n4000 K\n")
+    me = out["metrics_extra"]
+    assert me["cct_k"] == 2700.0
+    assert me["cct_mixed_k"] == [2700.0, 4000.0]
+
+
+def test_single_cct_no_mixed_list() -> None:
+    """单一色温不产生 mixed 列表。"""
+    me = parse_report_text("产品数据表\n色温\n4000 K\n")["metrics_extra"]
+    assert me["cct_k"] == 4000.0
+    assert me["cct_mixed_k"] is None

@@ -397,6 +397,21 @@ def parse_ugr_panel(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _ugr_summary(text: str) -> Optional[List[Dict[str, Any]]]:
+    """摘要表「眩光评估 12.1」兜底（缺陷 3）。
+
+    报表未勾眩光计算页时 ``_ugr_points`` 拿不到块；但摘要表仍有一行眩光评估值。
+    只在该行**紧跟数值**时兑底（词汇表的解释性文字不兑），出处标 ``source="summary"``，
+    报告层带「摘要行」注记，不与眩光块记录混同。
+    """
+    m = re.search(rf"眩光评估\s*[:：]?\s*\n?\s*({_NUM})", text)
+    if not m:
+        return None
+    rec = _ugr_record("摘要", m.group(1))
+    rec["source"] = "summary"
+    return [rec]
+
+
 def _workplane(text: str, missing: List[str]) -> Dict[str, Any]:
     h = _first(rf"高度工作面\s*\n\s*({_NUM})\s*m", text)
     edge = _first(rf"边缘区工作面\s*\n\s*({_NUM})\s*m", text)
@@ -452,8 +467,8 @@ def _workplane(text: str, missing: List[str]) -> Dict[str, Any]:
             "emax_lx": _f(emax) if emax else None,
             "uniformity_g2": _f(g2) if g2 else None,
         },
-        # UGR：含眩光块 → 点记录列表（多样本就绪）；未勾选的报表 → null
-        "ugr": _ugr_points(text),
+        # UGR：含眩光块 → 点记录列表（多样本就绪）；未勾眩光页但摘要表有值 → 单条 summary 记录；都没有 → null
+        "ugr": _ugr_points(text) or _ugr_summary(text),
         # 逐点网格仍只有等值线矢量图，固定 None
         "grid": None,
     }
@@ -474,6 +489,10 @@ def _metrics_extra(text: str, missing: List[str]) -> Dict[str, Any]:
     ds = text.split("产品数据表", 1)[-1] if "产品数据表" in text else ""
     ra = _first(r"\nCRI\s*\n\s*(\d{2,3})", ds) if ds else None
     cct = _first(r"色温\s*\n\s*(\d{4})\s*K", ds) if ds else None
+    # 缺陷 2：混装灯具（如 2700×16 + 4000×12）时报范围加注，不拿首行单值冒充全部
+    cct_all: List[float] = []
+    if ds:
+        cct_all = [float(x) for x in re.findall(r"色温\s*\n\s*(\d{4})\s*K", ds)]
     if ra is None:
         ra = _first_of(
             _first(r"\bRa\s*[:：]?\s*(\d{2,3})", text),
@@ -481,6 +500,9 @@ def _metrics_extra(text: str, missing: List[str]) -> Dict[str, Any]:
         )
     if cct is None:
         cct = _first(r"色温\s*[:：]?\s*(\d{4})\s*K", text)
+        if cct is not None and not cct_all:
+            cct_all = [float(cct)]
+    cct_distinct = sorted(set(cct_all))
 
     # 灯具列表页的汇总行（用于与件数交叉校验）
     flux_total = _first(rf"Φ总数\s*\n\s*({_NUM})\s*lm", text)
@@ -498,6 +520,7 @@ def _metrics_extra(text: str, missing: List[str]) -> Dict[str, Any]:
         "lpd_w_m2": _f(lpd) if lpd else None,
         "ra": float(ra) if ra else None,
         "cct_k": float(cct) if cct else None,
+        "cct_mixed_k": cct_distinct if len(cct_distinct) > 1 else None,
         "energy_kwh_a": _f(energy) if energy else None,
         "energy_max_kwh_a": _f(energy_max) if energy_max else None,
         "maintenance_factor": _f(mf) if mf else None,

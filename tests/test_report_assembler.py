@@ -385,3 +385,23 @@ def test_lamp_preselect_boundaries(tmp_path, monkeypatch) -> None:
     text = assemble_report(pkg, criteria=crit_no_lpd)
     assert "未取证（缺单灯通量）" in text
     assert "—（未给 LPD 上限）" in text
+
+
+def test_ugr_summary_record_annotated_in_line() -> None:
+    """摘要行兜底的 UGR 在报告里标出处，不与眩光块记录混同。"""
+    from optiflow.report_assembler import _ugr_point_line
+
+    pkg = {"workplane": {"ugr": [{"point": "摘要", "ugr_max": 12.1, "source": "summary"}]}}
+    line = _ugr_point_line(pkg)
+    assert line is not None
+    assert "摘要 12.1" in line and "摘要行" in line
+
+
+def test_mixed_cct_displays_range_with_note() -> None:
+    """缺陷 2：混色温显示范围＋注记，判定仍按首值。"""
+    from optiflow.report_assembler import metrics_rows
+
+    pkg = {"metrics_extra": {"cct_k": 2700.0, "cct_mixed_k": [2700.0, 4000.0]}}
+    row = next(r for r in metrics_rows(pkg) if r["key"] == "cct_k")
+    assert row["valueText"] == "2700–4000 K（混色温）"
+    assert row["value"] == 2700.0

@@ -303,6 +303,8 @@ def _ugr_point_line(pkg: Dict[str, Any]) -> Optional[str]:
             cond.append(f"步进 {_fmt_num(p['step'])}°")
         if p.get("height_m") is not None:
             cond.append(f"高度 {_fmt_num(p['height_m'], 'm')}")
+        if p.get("source") == "summary":
+            cond.append("摘要行")
         if cond:
             seg += "（" + "，".join(cond) + "）"
         segs.append(seg)
@@ -319,6 +321,15 @@ def _metric_value(pkg: Dict[str, Any], metric: Dict[str, Any]) -> Any:
             default=None,
         )
     return value
+
+
+def _fmt_metric_value(pkg: Dict[str, Any], metric: Dict[str, Any], value: Any) -> str:
+    """实测值文案。CCT 混色温时显示范围＋注记（缺陷 2：单值化掩盖混装灯具）。"""
+    if metric["crit"] == "cct_k":
+        mixed = _dig(pkg, ("metrics_extra", "cct_mixed_k"))
+        if isinstance(mixed, list) and len(mixed) > 1:
+            return f"{_fmt_num(min(mixed))}–{_fmt_num(max(mixed))} K（混色温）"
+    return _fmt_num(value, metric["unit"])
 
 
 def metrics_rows(pkg: Dict[str, Any],
@@ -341,7 +352,7 @@ def metrics_rows(pkg: Dict[str, Any],
             "label": metric["label"],
             "unit": metric["unit"],
             "value": value,
-            "valueText": _fmt_num(value, metric["unit"]),
+            "valueText": _fmt_metric_value(pkg, metric, value),
             "threshold": (_crit_text(rule) or "—（标准未规定）") if rule else "—（标准未规定）",
             "verdict": _judge(value, rule.get("op"), rule.get("value")),
             "source": f"{rule.get('standard', '')} {rule.get('table', '')}".strip() if rule else "",
@@ -360,7 +371,7 @@ def _effect_block(pkg: Dict[str, Any], crit: Dict[str, Dict[str, Any]]) -> str:
         # 2026-10-13 由跨语言一致性断言抓出：原先这里写「—」，两侧措辞不同）。
         threshold = _crit_text(rule) if rule else "—（标准未规定）"
         lines.append(
-            f"| {metric['label']} | {_fmt_num(value, metric['unit'])} "
+            f"| {metric['label']} | {_fmt_metric_value(pkg, metric, value)} "
             f"| {threshold or '—（标准未规定）'} | {_judge(value, rule.get('op'), rule.get('value'))} |"
         )
     ugr_line = _ugr_point_line(pkg)
