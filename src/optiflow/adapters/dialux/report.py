@@ -282,14 +282,49 @@ def _single_type_from_datasheet(text: str) -> Dict[str, Any]:
 
 # ---------------------------------------------------------------- 文本路：字段
 
+# --- D5 房间级面积（2026-10-28 真机 29 页多工作面报表实测） ---
+# 分段锚点＝「摘要」：每张摘要页恰有一个「摘要」标题，两页版与 29 页版一致，
+# 于是「摘要 → 下一个摘要」正好圈出一张摘要页的内容。
+_SUMMARY_PAGE = "摘要"
+# 摘要页内的「地面 + 数值」对（单位必带）
+_GROUND_AREA = re.compile(rf"地面\s*\n\s*({_NUM})\s*m²")
+# 房间级摘要页的固有行（房高）；工作面摘要页只有「高度 工作面」，没有这一行
+_ROOM_LEVEL_ROW = "安装高度"
+# 工作面索引（`WPn`）：出现在工作面/结果页，房间级摘要页上不该有
+_WP_INDEX = re.compile(r"\bWP\d+\b")
+
+
+def _room_level_area(text: str) -> Optional[str]:
+    r"""房间级「地面」面积；佐证不了是房间级就返回 None —— 宁缺不猜（D5）。
+
+    实测的反面事实：29 页多工作面报表里那 5 个 ``X m²`` 全是各**工作面**的地面面积
+    （4.21 / 4.26 / 3.15 / 1.41 / 5.33），房间面积 97.66 在文本层里**根本不出现**；
+    旧逻辑的兜底 ``({_NUM})\s*m²`` 抓全文第一个，正好把一个工作面当房间面积入包。
+
+    认房间级要过三关，缺一条就返回 None：
+
+    1. 「地面 + X m²」落在**摘要页**里（「摘要」起、下一个「摘要」止）；
+    2. 同一张摘要页带 ``安装高度`` —— 房间级摘要有房高，工作面摘要页没有；
+    3. 同一张摘要页不出现工作面索引 ``WPn``。
+
+    判据刻意留在页内：29 页版的房高可能整页缺席（本样本就是），按全文判会把工作面
+    面积又收回来；而「工作面」二字两版摘要页都有，不能当反证。
+    """
+    for region in text.split(_SUMMARY_PAGE)[1:]:
+        if _ROOM_LEVEL_ROW not in region or _WP_INDEX.search(region):
+            continue
+        m = _GROUND_AREA.search(region)
+        if m:
+            return m.group(1)
+    return None
+
+
 def _rooms(text: str, missing: List[str]) -> List[Dict[str, Any]]:
-    area = _first_of(
-        _first(rf"地面\s*\n\s*({_NUM})\s*m²", text),
-        _first(rf"({_NUM})\s*m²", text),
-    )
+    area = _room_level_area(text)
     height = _first(rf"安装高度\s*\n\s*({_NUM})\s*m", text)
     if area is None:
-        missing.append("rooms.area_m2")
+        # 不退回工作面面积（D5）：写清缺的是「房间级」，报告层才知道 null 的原因
+        missing.append("rooms.area_m2(仅工作面面积可得，非房间级)")
     if height is None:
         missing.append("rooms.height_m")
     return [
@@ -508,6 +543,16 @@ def _metrics_extra(text: str, missing: List[str]) -> Dict[str, Any]:
     flux_total = _first(rf"Φ总数\s*\n\s*({_NUM})\s*lm", text)
     power_total = _first(rf"P总数\s*\n\s*({_NUM})\s*W", text)
 
+    # D6：LPD 抽到 0.00 而灯具汇总功率非零 → 报表没算，不是「实测为零」
+    # （2026-10-28 真机 29 页报表：10 处「照明功率密度」全 0.00，而 Φ总数 89550 lm
+    # / P总数 1050 W。DIALux 不在工作面级算 LPD。）0 入包会被当实测值引用，
+    # 物理上不成立 —— 置 None 并记缺项；真非零值原样保留。
+    lpd_value = _f(lpd) if lpd else None
+    power_total_value = _f(power_total) if power_total else None
+    if lpd_value == 0.0 and power_total_value is not None and power_total_value > 0:
+        lpd_value = None
+        missing.append("metrics_extra.lpd_w_m2(报表为0.00，功率非零，疑DIALux未计算)")
+
     for name, val in (
         ("metrics_extra.lpd_w_m2", lpd),
         ("metrics_extra.energy_kwh_a", energy),
@@ -517,7 +562,7 @@ def _metrics_extra(text: str, missing: List[str]) -> Dict[str, Any]:
             missing.append(name)
 
     return {
-        "lpd_w_m2": _f(lpd) if lpd else None,
+        "lpd_w_m2": lpd_value,
         "ra": float(ra) if ra else None,
         "cct_k": float(cct) if cct else None,
         "cct_mixed_k": cct_distinct if len(cct_distinct) > 1 else None,
@@ -531,7 +576,7 @@ def _metrics_extra(text: str, missing: List[str]) -> Dict[str, Any]:
         ),
         # 灯具列表页汇总行（29 页版与 2 页版均含）
         "flux_total_lm": _f(flux_total) if flux_total else None,
-        "power_total_w": _f(power_total) if power_total else None,
+        "power_total_w": power_total_value,
     }
 
 

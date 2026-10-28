@@ -235,6 +235,70 @@ def test_total_rows_are_read_but_never_inferred_into_count() -> None:
     assert out["integrity"]["positions_count"] == 2
 
 
+# ---------------------------------------------------------------- D5 房间级面积
+
+# 形态照 2026-10-28 真机 29 页多工作面报表：摘要页只有工作面的地面面积，房高（安装高度）
+# 整页缺席。数值虚构（红线：真机数据不入库）。
+_WP_SUMMARY_PAGE = (
+    "设计案\n建筑物 1 · 楼层 1 · 会议室X (灯光场景 1)\n摘要\n11\n"
+    "维护系数\n0.80 (一般情况)\n反射系数\n天花板: 70.0 %,\n墙壁: 0.0 %,\n地板: 0.0 %\n"
+    "地面\n12.34 m²\n边缘区 工作面\n0.200 m\n高度 工作面\n0.000 m\n"
+)
+_ROOM_SUMMARY_PAGE = (
+    "设计案\n建筑物 1 · 楼层 1 · 会议室X (灯光场景 1)\n摘要\n21\n"
+    "维护系数\n0.80 (一般情况)\n反射系数\n天花板: 70.0 %,\n墙壁: 50.0 %,\n地板: 20.0 %\n"
+    "地面\n96.54 m²\n边缘区 工作面\n0.000 m\n高度 工作面\n0.750 m\n"
+    "安装高度\n3.200 m\n与地面距离\n3.200 m\n"
+)
+
+
+def test_workplane_summary_area_is_never_used_as_room_area() -> None:
+    """工作面摘要页的地面面积不是房间面积：宁缺（None + 缺项），不拿工作面顶上。"""
+    out = parse_report_text(_WP_SUMMARY_PAGE)
+    assert out["rooms"] == [{"id": "R1", "area_m2": None, "height_m": None}]
+    assert "rooms.area_m2(仅工作面面积可得，非房间级)" in out["_missing"]
+    assert "rooms.area_m2" not in out["_missing"]  # 旧标签不再出现（报告层按新标签说明）
+
+
+def test_room_level_summary_page_still_gives_the_area() -> None:
+    """房间级摘要页（带房高、不带工作面索引）照旧取面积；工作面的页在前也不抢先。"""
+    out = parse_report_text(_WP_SUMMARY_PAGE + "\n" + _ROOM_SUMMARY_PAGE)
+    assert out["rooms"] == [{"id": "R1", "area_m2": 96.54, "height_m": 3.2}]
+    assert "rooms.area_m2(仅工作面面积可得，非房间级)" not in out["_missing"]
+
+
+def test_summary_page_with_workplane_index_is_not_room_level() -> None:
+    """摘要页挂着 `WPn` 索引 = 工作面块：即便有房高也不认这处面积。"""
+    out = parse_report_text(_ROOM_SUMMARY_PAGE.replace("摘要", "摘要\nWP4"))
+    assert out["rooms"][0]["area_m2"] is None
+
+
+# ---------------------------------------------------------------- D6 LPD
+
+_LPD_BLOCK = "照明功率密度\n0.00 W/m²\n–\n0.00 W/m²/100 lx\n–\n"
+_POWER_ROW = "Φ总数\n89550 lm\nP总数\n1050.0 W\n"
+
+
+def test_lpd_zero_with_nonzero_power_is_not_a_measured_zero() -> None:
+    """LPD 0.00 而灯具功率非零 = DIALux 没算：置 None 并记缺项，不当实测 0 入包。"""
+    out = parse_report_text(_LPD_BLOCK + _POWER_ROW)
+    me = out["metrics_extra"]
+    assert me["lpd_w_m2"] is None
+    assert me["power_total_w"] == 1050.0 and me["flux_total_lm"] == 89550.0
+    assert "metrics_extra.lpd_w_m2(报表为0.00，功率非零，疑DIALux未计算)" in out["_missing"]
+    assert "metrics_extra.lpd_w_m2" not in out["_missing"]  # 旧标签不再出现
+
+
+def test_lpd_genuine_values_are_left_untouched() -> None:
+    """真非零值原样保留；功率也为 0 时的 0.00 不动（没有「功率非零」这条反证）。"""
+    nonzero = parse_report_text("照明功率密度\n7.40 W/m²\n" + _POWER_ROW)
+    assert nonzero["metrics_extra"]["lpd_w_m2"] == 7.4
+    assert "metrics_extra.lpd_w_m2(报表为0.00，功率非零，疑DIALux未计算)" not in nonzero["_missing"]
+
+    zero_power = parse_report_text(_LPD_BLOCK + "P总数\n0.0 W\n")
+    assert zero_power["metrics_extra"]["lpd_w_m2"] == 0.0
+
+
 # ---------------------------------------------------------------- UGR
 
 # 形态照 10-08 UGR 样本（_ugr_probe 真机报表），数值虚构（红线：真机数据不入库）
