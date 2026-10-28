@@ -103,10 +103,24 @@ def _furniture_block(spaces: list) -> Dict[str, Any]:
     }
 
 
+def _is_furniture_space(s: Dict[str, Any]) -> bool:
+    """家具伪空间：parser 把小面积环也写成 space，环来的家具 name 前缀「家具_」，
+    块引用来的家具 id 前缀 INSERT_/furniture_。主房不能选它们。
+    与壳侧 `core._is_furniture_space` 一字不改地一致。"""
+    name = str(s.get("name") or "")
+    sid = str(s.get("id") or "")
+    return name.startswith("家具_") or sid.startswith(("INSERT_", "furniture_"))
+
+
 def _main_room(ir: Dict[str, Any]) -> Dict[str, Any]:
     """单主房选择（口径＝壳侧 `room_of`，一字不改）：**只看第一层**，先挑有灯位的 space，
-    没有则顶点最多的那个（含家具伪空间——照原样，不擅自收紧）；空 IR 回 0 值 dict，
-    保证壳侧 `room` 字段形状不变。另附它自己的灯位三数（壳侧 `luminaires` 块原本就是主房口径）。"""
+    没有则**先排除家具伪空间、再按面积最大**选（面积同则比顶点数）；空 IR 回 0 值 dict，
+    保证壳侧 `room` 字段形状不变。另附它自己的灯位三数（壳侧 `luminaires` 块原本就是主房口径）。
+
+    2026-10-28 变更（原口径「全部 space 里顶点最多」）：产品级实测「半圆两室一厅」的主房
+    被选成 6.24 m² 的半圆房（18 个采样点压过 16.00 m² 的矩形房），界面看着像另一间房丢了；
+    无灯位时还会挑中 22 点的家具伪空间 LINEARC_022。挂灯前后现在同口径，都指向真房
+    （WALLRING_000_E18_2D1F）。"""
     from optiflow.adapters.dialux._chain import polygon_area
 
     spaces0 = (ir.get("storeys") or [{}])[0].get("spaces") or []
@@ -116,7 +130,12 @@ def _main_room(ir: Dict[str, Any]) -> Dict[str, Any]:
             main = s
             break
     if main is None and spaces0:
-        main = max(spaces0, key=lambda s: len(s.get("polygon") or []))
+        # 没有灯位时：先排除家具伪空间，再按面积最大选主房（与壳侧 `room_of` 同口径）。
+        # 旧口径「顶点最多」会让弧形房（一圈采样点）压过面积更大的矩形房。
+        real = [s for s in spaces0 if not _is_furniture_space(s)]
+        pool = real or spaces0
+        main = max(pool, key=lambda s: (polygon_area(s.get("polygon") or []),
+                                        len(s.get("polygon") or [])))
     main = main or {}
     poly = main.get("polygon") or []
     lamps = main.get("luminaires") or []

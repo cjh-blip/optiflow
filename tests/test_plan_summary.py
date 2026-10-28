@@ -135,10 +135,12 @@ def test_summarize_ir_is_pure_entry_and_agrees_with_plan():
     # 挂灯前后灯位数不同（纯入口没跑 join），房间/家具/主房口径必须同源
     assert pure["furniture"] == planned["furniture"]
     assert pure["rooms"] == planned["rooms"]
-    # 主房选择**照壳侧原规则**：没挂灯时兑底挑顶点最多的 space（含家具伪空间 → 22 点的
-    # LINEARC_022），这里把该行为钉成断言：要收紧成「只在真房间挑」属语义变更，得先拍。
-    assert pure["main_room"]["points"] == 22
-    assert pure["main_room"]["name"].startswith("家具_")
+    # 主房选择：先排除家具伪空间（name 前缀「家具_」/ id 前缀 INSERT_、furniture_），
+    # 再按面积最大挑。2026-10-28 变更（原口径为「全部 space 里顶点最多」，会把 22 点的
+    # 家具伪空间 LINEARC_022 当主房；半圆两室一厅实测主房被选成 6.24 m² 的半圆房，
+    # 界面看着像另一间房丢了）。挂灯前后现在同口径，都指向真房。
+    assert pure["main_room"]["points"] == 17
+    assert pure["main_room"]["name"] == "WALLRING_000_E18_2D1F"
     # 挂灯后的主房必须是真房间（与计划入口同口径）
     assert planned["main_room"]["name"] == "WALLRING_000_E18_2D1F"
     assert pure["validation"] == {"counts": {}, "HALT": [], "real": [],
