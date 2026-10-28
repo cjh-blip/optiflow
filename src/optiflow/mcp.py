@@ -20,6 +20,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .service import PlatformService, build_default_service
@@ -207,8 +209,11 @@ def _registry_handler(command_id: str):
 
 
 def _json_schema(cmd: Any) -> Dict[str, Any]:
+    # json 必须映射成 object：漏了它，带 json 参数的动作在 AI 眼里是个空盒子（{}），
+    # 不知道能塞什么只能猜（设计稿 G2）。Param.type 在 commands.py 已声明支持 json。
     type_map = {"str": "string", "path": "string", "markdown": "string",
-                "int": "integer", "float": "number", "bool": "boolean"}
+                "int": "integer", "float": "number", "bool": "boolean",
+                "json": "object"}
     props: Dict[str, Any] = {}
     required: List[str] = []
     for p in cmd.params:
@@ -225,15 +230,34 @@ def _json_schema(cmd: Any) -> Dict[str, Any]:
 
 from .commands import COMMANDS as _REGISTRY  # noqa: E402  （放这里是为了让它紧跟生成逻辑）
 
-for _cid, _cmd in sorted(_REGISTRY.items()):
-    TOOLS.append({
-        "name": _cid,
-        "description": f"{_cmd.description}｜返回 {_cmd.returns}",
-        "inputSchema": _json_schema(_cmd),
-        "handler": _registry_handler(_cid),
-    })
+TOOLS_BY_NAME: Dict[str, Dict[str, Any]] = {t["name"]: t for t in TOOLS}
 
-TOOLS_BY_NAME = {t["name"]: t for t in TOOLS}
+
+def _add_registry_tools() -> List[str]:
+    """把注册表里**还没进工具表**的动作 append 成 MCP 工具，返回这一次新加的名字。
+
+    为什么不是一个 for 循环了事：注册表是可变的（壳侧 import 时登记真机动作），
+    而工具表在 import 时就生成了。这里做成可重复调用的「补齐」，
+    在 import 底、以及 main() 里壳侧 import 完各调一次 —— 谁先谁后都不会漏。
+    已存在的 id 不重复加（工具名唯一是 tests/test_commands.py 钉住的）。
+    """
+    added: List[str] = []
+    for cid, cmd in sorted(_REGISTRY.items()):
+        if cid in TOOLS_BY_NAME:
+            continue
+        tool = {
+            "name": cid,
+            "description": f"{cmd.description}｜返回 {cmd.returns}",
+            "inputSchema": _json_schema(cmd),
+            "handler": _registry_handler(cid),
+        }
+        TOOLS.append(tool)
+        TOOLS_BY_NAME[cid] = tool
+        added.append(cid)
+    return added
+
+
+_add_registry_tools()
 
 
 def _public_tools() -> List[Dict[str, Any]]:
@@ -341,12 +365,47 @@ def serve_stdio(service: PlatformService, stdin=None, stdout=None) -> int:
     return 0
 
 
+def _load_shell_actions() -> List[str]:
+    """import 壳侧动作模块，让它们的命令先进注册表，再补齐 MCP 工具表。
+
+    壳侧（standalone/）的 `app_commands` 登记 dialux.parse / overlay / inputs /
+    one_shot，`app_real` 登记 dialux.real.* 五步。这两个模块 import 即完成登记
+    （见各自 docstring 的依赖方向：app → 平台 ✓），所以这里只要 import 一次，
+    工具表就自动多出这几条，零手写——与注册表生成那条路是同一份声明。
+
+    三道护栏，都是「缺了不许炸」：
+    - 壳目录不在 sys.path 时补上（**insert(0)**，与 app_tk.py 同一套：壳自己的
+      core 必须排最前，否则会被平台 src/core 同名闭包顶掉）；
+    - 每个模块单独 try/except，缺平台、缺依赖只打印一句到 stderr，MCP 照常起；
+    - 找不到壳目录（例如平台仓被单独拷走）直接跳过，服务不因此不可用。
+    """
+    here = Path(__file__).resolve()
+    shells = [here.parents[3]]                          # Windows 单仓：壳在仓根上一层的独立目录
+    shells.append(here.parents[4] / "optiflow-app" / "standalone")  # Mac 拆分仓：壳在 projects/optiflow-app/standalone
+    env_shell = os.environ.get("GUANGSHU_SHELL")
+    if env_shell:
+        shells.append(Path(env_shell))
+    for shell in shells:
+        if (shell / "app_commands.py").is_file():
+            if str(shell) not in sys.path:
+                sys.path.insert(0, str(shell))
+            break
+    for name in ("app_commands", "app_real"):
+        try:
+            __import__(name)
+        except Exception as exc:  # noqa: BLE001 - 缺平台/缺依赖只降级，不该让 MCP 起不来
+            print(f"[mcp] 跳过壳侧动作 {name}：{type(exc).__name__}: {exc}",
+                  file=sys.stderr)
+    return _add_registry_tools()
+
+
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m optiflow.mcp",
                                      description="光枢/OptiFlow MCP server（stdio）")
     parser.add_argument("--self-check", action="store_true",
                         help="打印工具清单后退出（不进入 stdio 循环）")
     args = parser.parse_args(argv)
+    _load_shell_actions()          # 壳侧动作登记完，工具表才是完整的（G1）
     service = build_default_service()
     if args.self_check:
         for tool in _public_tools():
