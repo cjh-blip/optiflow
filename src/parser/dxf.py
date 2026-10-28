@@ -202,10 +202,14 @@ class Room:
     name: str
     polygon: List[Point]
     layer: str
+    # 源实体自己声明了闭合（LWPOLYLINE close=True / 环搜索结果），多边形不必重复首点
+    closed: bool = False
 
     def is_closed(self, tol: float = CLOSE_TOLERANCE_METERS) -> bool:
         if len(self.polygon) < 3:
             return False
+        if self.closed:
+            return True
         a = self.polygon[0][:2]
         b = self.polygon[-1][:2]
         return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5 < tol
@@ -240,6 +244,15 @@ def classify_rect_luminaire(w_mm: float, h_mm: float) -> str:
 
 def _entity_layer(entity) -> str:
     return (entity.dxf.layer or "").upper()
+
+
+def _entity_closed(entity) -> bool:
+    """LWPOLYLINE.closed / POLYLINE.is_closed：实体自己是否声明了首尾相连。"""
+    value = getattr(entity, "closed", None)
+    if isinstance(value, bool):
+        return value
+    value = getattr(entity, "is_closed", None)
+    return bool(value() if callable(value) else value)
 
 
 def _doc_units(doc, cfg: ParseConfig) -> str:
@@ -300,7 +313,8 @@ def extract_rooms(doc: ezdxf.document.Drawing, cfg: ParseConfig) -> List[Room]:
             for x, y in points
         ]
         rid = entity.dxf.handle or f"LW{id(entity):x}"
-        rooms.append(Room(id=rid, name=rid, polygon=polygon, layer=_entity_layer(entity)))
+        rooms.append(Room(id=rid, name=rid, polygon=polygon, layer=_entity_layer(entity),
+                          closed=_entity_closed(entity)))
 
     # 分支 B：LINE + ARC → 首尾链拼接环（提取后 convert_to_meters 同样处理）
     edge_layers = {layer.upper() for layer in cfg.room_edge_layers}
@@ -319,7 +333,8 @@ def extract_rooms(doc: ezdxf.document.Drawing, cfg: ParseConfig) -> List[Room]:
     )
     for idx, (poly_mm, handles_note) in enumerate(polygons_b):
         rid = f"LINEARC_{idx:03d}_{handles_note or ''}"
-        rooms.append(Room(id=rid, name=rid, polygon=_to_m_poly(poly_mm), layer="LINE+ARC"))
+        rooms.append(Room(id=rid, name=rid, polygon=_to_m_poly(poly_mm),
+                          layer="LINE+ARC", closed=True))
 
     # 分支 B2（墙线环 pass）：关掉 T 形分割再拼一轮。
     # 贴墙家具的端点不再把墙线切断 → 环搜索无法在共享端点处拐进柜子轮廓，
@@ -342,7 +357,8 @@ def extract_rooms(doc: ezdxf.document.Drawing, cfg: ParseConfig) -> List[Room]:
             if _poly_area(poly_m) <= FURNITURE_AREA_M2:
                 continue
             rid = f"WALLRING_{idx:03d}_{handles_note or ''}"
-            rooms.append(Room(id=rid, name=rid, polygon=poly_m, layer=WALL_RING_LAYER))
+            rooms.append(Room(id=rid, name=rid, polygon=poly_m,
+                              layer=WALL_RING_LAYER, closed=True))
             n_wall_kept += 1
         logger.info("墙线环 pass：分支 B %d 环；分支 B2 %d 环 → 收房间候选 %d 个",
                     len(polygons_b), len(polygons_w), n_wall_kept)
@@ -725,7 +741,7 @@ def parse_dxf(path: str, cfg: Optional[ParseConfig] = None) -> dict:
             "furniture": len(kept_furn),
             "luminaires": len(lumis),
             "rooms_closed": sum(1 for r in kept_rooms if r.is_closed()),
-            "dxf_units": cfg.units,
+            "dxf_units": _doc_units(doc, cfg),
             # 房间环上被剔除的贴墙家具凹槽/凸台数（0 = 环本来就干净）
             "room_notches_removed": notches_removed,
             # 仍带 <0.2m 短边的房间数（>0 → 可能仍混入家具轮廓，见 WARNING 日志）
