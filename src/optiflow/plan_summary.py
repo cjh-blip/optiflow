@@ -168,6 +168,42 @@ def summarize_plan(dxf: str, dxf_lum: Optional[str] = None,
                         viols=validate_ir(ir))
 
 
+def units_check(meta: Dict[str, Any], note: str = "") -> Dict[str, Any]:
+    """「单位识别」判据的**唯一口径**（两个宿主都调它，不各自写一份）。
+
+    旧口径是 ``bool(meta["dxf_units"])``：只要有单位就算过。于是「header 写 mm、
+    几何按 cm 画」的图被按 mm 读、读到 0 个房间，这一项照样打勾（实测 2026-10-28）。
+    现在的口径看**单位与几何对不对得上**，判据取解析器给的 ``_meta.units_source``：
+
+    - ``config`` / ``header``：单位有明确出处，过；
+    - ``geometry_fallback``：header 撒谎、已按几何兜底，兜底后读出房间才算过；
+    - ``config_fallback``：header 没声明、退回配置默认值，读出房间才算过；
+    - 其他 / 缺失：不过。
+
+    ``note`` 是调用方补的上下文（比如平台侧要标「用的是默认配置」）。
+    """
+    units = meta.get("dxf_units")
+    source = meta.get("units_source") or "unknown"
+    rooms = int(meta.get("rooms", 0) or 0)
+
+    if source == "geometry_fallback":
+        passed = rooms > 0
+        detail = (f"header 声明 {meta.get('units_header')} 与几何量级不符，"
+                  f"已按 {units} 兜底解析（已折算为米）{note}")
+    elif source == "config_fallback":
+        passed = rooms > 0
+        detail = (f"DXF 没声明单位，按配置 {units} 解析（已折算为米）；"
+                  f"读不出房间时请显式给 units{note}")
+    elif source in ("config", "header"):
+        where = "配置指定" if source == "config" else "header $INSUNITS 声明"
+        passed = bool(units)
+        detail = f"按 {units} 解析（{where}，已折算为米）{note}"
+    else:
+        passed = False
+        detail = f"单位未知（{units!r}）{note}"
+    return {"name": "单位识别", "passed": passed, "detail": detail}
+
+
 def summarize_ir(ir: Dict[str, Any], *,
                  join_warnings: Optional[list] = None,
                  lum_note: Optional[str] = None,
@@ -226,7 +262,7 @@ def summarize_ir(ir: Dict[str, Any], *,
          "detail": f"候选 {meta.get('furniture')} 件"},
         {"name": "识别到灯位", "passed": len(lums) > 0,
          "detail": f"{len(lums)} 盏" + ("" if lum_note is None else "（未提供灯具图）")},
-        {"name": "单位识别", "passed": bool(meta.get("dxf_units")), "detail": f"units={meta.get('dxf_units')}"},
+        {"name": "单位识别", **units_check(meta)},
         # 第七项＝并集进来的（Windows 独有、平台原缺）：退化多边形守卫，扩到全体真房间
         {"name": "房间轮廓点 ≥ 3",
          "passed": bool(rooms) and min(len(r.get("polygon") or []) for r in rooms) >= 3,

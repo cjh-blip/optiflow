@@ -30,6 +30,7 @@ from .ir import TaskSpec
 from .job import JobStatus
 from .orchestrator import Orchestrator, PipelineRun
 from .pipelines import DEFAULT_PIPELINES, get_pipeline
+from .plan_summary import units_check
 from .project import Project
 from .registry import AdapterRegistry
 
@@ -157,6 +158,11 @@ class PlatformService:
         rooms_total = int(meta.get("rooms", 0))
         closed = int(meta.get("rooms_closed", 0))
         saw = int(meta.get("rooms_with_sawtooth", 0))
+        # 单位出处（解析器给的）：config / header / config_fallback / geometry_fallback
+        units_used = meta.get("dxf_units")
+        units_source = meta.get("units_source") or "unknown"
+        config_source = "caller" if config else "default"
+        cfg_note = "" if config_source == "caller" else "（调用方未给解析配置，用的是 ParseConfig 默认）"
 
         rooms_out: List[Dict[str, Any]] = []
         storeys = ir.get("storeys") or [{}]
@@ -178,24 +184,29 @@ class PlatformService:
 
         checks = [
             {"name": "读到房间", "passed": rooms_total > 0,
-             "detail": f"{rooms_total} 个闭合房间" if rooms_total else "没读到房间，检查图层与单位设置"},
+             "detail": (f"{rooms_total} 个闭合房间" if rooms_total else
+                        f"没读到房间（按 {units_used} 解析）；检查图层与单位设置，"
+                        f"或用 config 显式指定 units{cfg_note}")},
             {"name": "房间环闭合", "passed": rooms_total > 0 and closed == rooms_total,
              "detail": f"{closed}/{rooms_total} 个环闭合"},
             {"name": "环上短边", "passed": saw == 0,
              "detail": "无异常短边" if saw == 0 else f"{saw} 个房间环上有 <0.2m 短边，可能混入家具轮廓"},
-            {"name": "单位识别", "passed": bool(meta.get("dxf_units")),
-             "detail": f"按 {meta.get('dxf_units')} 解析（已折算为米）"},
+            units_check(meta, cfg_note),   # 判据口径在 plan_summary.units_check，不在这里另写一份
         ]
 
         return {
             "ok": all(c["passed"] for c in checks),
             "filename": name,
+            # 解析配置出处：caller（调用方显式给）/ default（用 ParseConfig 默认）
+            "config_source": config_source,
             "summary": {
                 "rooms": rooms_total,
                 "rooms_closed": closed,
                 "furniture": int(meta.get("furniture", 0)),
                 "luminaires": int(meta.get("luminaires", 0)),
-                "units": meta.get("dxf_units"),
+                "units": units_used,
+                "units_source": units_source,
+                "config_source": config_source,
                 "notches_removed": int(meta.get("room_notches_removed", 0)),
             },
             "checks": checks,
