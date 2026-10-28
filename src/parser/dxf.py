@@ -27,6 +27,12 @@ CLOSE_TOLERANCE_METERS = 1e-3
 MIN_AREA_M2 = 0.05
 #: 房间/家具分界（m²）：面积 ≤ 此值 → 家具，> 此值 → 房间
 FURNITURE_AREA_M2 = 20.0
+#: 墙弧半径下限（米）：LINE+ARC 拼出的环上最大弧半径 ≥ 此值才按「墙弧」升格为房间。
+#: 实测分离度很宽：半圆房 r=2.0 m、圆房 r=2.5 m，家具弧（圆桌）都在 1.5 m 以下。
+WALL_ARC_RADIUS_M = 1.5
+#: 升格通道的面积下限（m²）：只挡退化小环，不参与房间/家具分界
+#: （分界仍由 FURNITURE_AREA_M2 负责）。
+ARC_RING_MIN_AREA_M2 = 2.0
 #: 「墙线环」（关掉 T 形分割拼出的房间轮廓）在 Room.layer 上的标记
 WALL_RING_LAYER = "WALL-RING"
 
@@ -232,6 +238,13 @@ class Room:
     layer: str
     # 源实体自己声明了闭合（LWPOLYLINE close=True / 环搜索结果），多边形不必重复首点
     closed: bool = False
+    #: 该环来自「图纸自己画成闭合的 LWPOLYLINE/POLYLINE」（分支 A 的源实体闭合声明）。
+    #: 闭合轮廓是图纸对「这一片是区域」的显式声明，面积不到 FURNITURE_AREA_M2 时
+    #: 不该被面积阈值降级成家具（见 ARC_RING_MIN_AREA_M2 与 _is_room）。
+    closed_outline: bool = False
+    #: 环上最大圆弧半径（米；无弧 = 0.0）。LINE+ARC 分支与 CIRCLE 围墙会填，
+    #: 房间/家具分界要用它（见 WALL_ARC_RADIUS_M）。
+    max_arc_radius: float = 0.0
 
     def is_closed(self, tol: float = CLOSE_TOLERANCE_METERS) -> bool:
         if self.closed:
@@ -421,8 +434,13 @@ def extract_rooms(doc: ezdxf.document.Drawing, cfg: ParseConfig) -> List[Room]:
             for x, y in points
         ]
         rid = entity.dxf.handle or f"LW{id(entity):x}"
+        # CIRCLE 围墙没有弧半径管道（几何本身就是圆）：直接把半径当作墙弧半径，
+        # 让它能走「墙弧升格」通道；小圆（圆桌 r<1.5m）不会升格。
+        circle_r = to_m(float(entity.dxf.radius)) if dxf_type == "CIRCLE" else 0.0
         rooms.append(Room(id=rid, name=rid, polygon=polygon, layer=_entity_layer(entity),
-                          closed=_entity_closed(entity)))
+                          closed=_entity_closed(entity),
+                          closed_outline=_entity_closed(entity),
+                          max_arc_radius=circle_r))
 
     # 分支 B：LINE + ARC → 首尾链拼接环（提取后 convert_to_meters 同样处理）
     edge_layers = {layer.upper() for layer in cfg.room_edge_layers}
@@ -439,10 +457,11 @@ def extract_rooms(doc: ezdxf.document.Drawing, cfg: ParseConfig) -> List[Room]:
         join_tolerance_mm=cfg.join_tolerance_mm,
         auto_close_tolerance_mm=cfg.auto_close_tolerance_mm,
     )
-    for idx, (poly_mm, handles_note) in enumerate(polygons_b):
+    for idx, (poly_mm, handles_note, max_arc_r) in enumerate(polygons_b):
         rid = f"LINEARC_{idx:03d}_{handles_note or ''}"
         rooms.append(Room(id=rid, name=rid, polygon=_to_m_poly(poly_mm),
-                          layer="LINE+ARC", closed=True))
+                          layer="LINE+ARC", closed=True,
+                          max_arc_radius=to_m(max_arc_r)))
 
     # 分支 B2（墙线环 pass）：关掉 T 形分割再拼一轮。
     # 贴墙家具的端点不再把墙线切断 → 环搜索无法在共享端点处拐进柜子轮廓，
@@ -460,13 +479,14 @@ def extract_rooms(doc: ezdxf.document.Drawing, cfg: ParseConfig) -> List[Room]:
             split_at_t_junctions=False,
         )
         n_wall_kept = 0
-        for idx, (poly_mm, handles_note) in enumerate(polygons_w):
+        for idx, (poly_mm, handles_note, max_arc_r) in enumerate(polygons_w):
             poly_m = _to_m_poly(poly_mm)
             if _poly_area(poly_m) <= FURNITURE_AREA_M2:
                 continue
             rid = f"WALLRING_{idx:03d}_{handles_note or ''}"
             rooms.append(Room(id=rid, name=rid, polygon=poly_m,
-                              layer=WALL_RING_LAYER, closed=True))
+                              layer=WALL_RING_LAYER, closed=True,
+                              max_arc_radius=to_m(max_arc_r)))
             n_wall_kept += 1
         logger.info("墙线环 pass：分支 B %d 环；分支 B2 %d 环 → 收房间候选 %d 个",
                     len(polygons_b), len(polygons_w), n_wall_kept)
@@ -563,7 +583,7 @@ def extract_luminaires(doc: ezdxf.document.Drawing, cfg: ParseConfig) -> List[Lu
             logger.warning("矩形灯具环抽取失败，跳过：%s", exc)
             rings = []
         rect_seq = 0
-        for poly, handles_note in rings:
+        for poly, handles_note, _arc_r in rings:
             xs = [p[0] for p in poly]
             ys = [p[1] for p in poly]
             xmin, xmax = min(xs), max(xs)
@@ -719,9 +739,81 @@ def _parse_doc(doc, path: str, cfg: ParseConfig,
         stats["rings_degenerate"] = len(raw_rooms) - len(all_rings)
         stats["largest_ring_m2"] = max((a for _, a, _ in all_rings), default=0.0)
 
+    # ---------- 房间/家具分界（大面积 或 墙弧 或 闭合多段线）----------
+    # 面积 > FURNITURE_AREA_M2 一律算房间（原行为）。面积不到这条线时，还有两条升格通道：
+    # ① 墙弧：LINE+ARC 环面积只有十几平米（圆房 19.5、半圆房 6.24），最大弧半径
+    #    ≥ WALL_ARC_RADIUS_M 且环上无锯齿短边；
+    # ② 闭合多段线：图纸自己把 LWPOLYLINE 画闭合了（closed flag），是小房间的显式声明。
+    # 两条都要求面积 > ARC_RING_MIN_AREA_M2（只挡退化小环）且无锯齿——
+    # 贴墙家具的轮廓混进这两种环时照样会露馅。
+    from ._chain import count_short_edges as _count_short_edges, SAWTOOTH_EDGE_M as _SAW
+
+    def _is_room(room, area) -> bool:
+        if area > FURNITURE_AREA_M2:
+            return True
+        if (area > ARC_RING_MIN_AREA_M2
+                and room.closed_outline
+                and _count_short_edges(room.polygon, _SAW) == 0):
+            logger.info("环 %s 按闭合多段线判为房间：面积 %.2f m²（面积判据会把它当家具）",
+                        room.id, area)
+            return True
+        # 注意：墙弧通道不检查锯齿短边。圆弧采样本身就会切出一串 < 0.2 m 的边
+        # （半圆房实测 32 条、每段 0.196 m），那是采样精度而不是「贴墙家具留在环上的
+        # 凹槽/凸台」。家具弧的半径都在 1.5 m 以下，由 WALL_ARC_RADIUS_M 这道门槛挡住。
+        if (area > ARC_RING_MIN_AREA_M2
+                and room.max_arc_radius >= WALL_ARC_RADIUS_M):
+            logger.info("环 %s 按墙弧判为房间：面积 %.2f m²、最大弧半径 %.2f m（面积判据会把它当家具）",
+                        room.id, area, room.max_arc_radius)
+            return True
+        return False
+
+    # 一次过划分，别让判据被求值两遍（它带日志）
+    room_rings = []
+    furn_rings = []
+    for _ring, _area, _bb in all_rings:
+        (room_rings if _is_room(_ring, _area) else furn_rings).append((_ring, _area, _bb))
+
+    # ---------- 非灯具 INSERT → 家具候选 ----------
+    # 家具常以块引用出现（桌椅/柜子各是一个 block），块内几何不参与 LINE+ARC 拼环，
+    # 按环分的家具表一件也收不到。块名不在 luminaire_blocks 里的 INSERT 即家具，
+    # 轮廓取块几何的 bbox，面积落在 [MIN_AREA_M2, FURNITURE_AREA_M2] 才算。
+    from ezdxf import bbox as _ezbbox
+
+    lu_blocks = {b.upper() for b in cfg.luminaire_blocks}
+    units_doc = _doc_units(doc, cfg)
+    insert_seq = 0
+    for insert in doc.modelspace().query("INSERT"):
+        block_name = insert.dxf.name or ""
+        # 灯具块判定与 extract_luminaires 一致（前缀匹配），其余块引用一律当家具
+        if lu_blocks and block_name.upper().startswith(tuple(lu_blocks)):
+            continue
+        try:
+            ext = _ezbbox.extents([insert], fast=True)
+        except Exception as exc:  # noqa: BLE001 - 量尺失败不许影响主链
+            logger.debug("INSERT %s 取块几何失败，跳过：%s", block_name, exc)
+            continue
+        if not ext.has_data:
+            continue
+        polygon = [
+            [float(convert_to_meters(x, units_doc) - cfg.origin[0]),
+             float(convert_to_meters(y, units_doc) - cfg.origin[1])]
+            for (x, y) in ((ext.extmin.x, ext.extmin.y), (ext.extmax.x, ext.extmin.y),
+                           (ext.extmax.x, ext.extmax.y), (ext.extmin.x, ext.extmax.y))
+        ]
+        ia = polygon_area(polygon)
+        if not (MIN_AREA_M2 <= ia <= FURNITURE_AREA_M2):
+            continue
+        insert_seq += 1
+        rid = f"INSERT_{insert_seq:03d}_{block_name or 'BLOCK'}"
+        furn_rings.append((
+            Room(id=rid, name=f"furniture_{block_name or 'BLOCK'}",
+                 polygon=polygon, layer=_entity_layer(insert)),
+            ia, _bbox(polygon),
+        ))
+    if insert_seq:
+        logger.info("INSERT 家具候选：%d 个（块名不在 luminaire_blocks 里的块引用）", insert_seq)
+
     # ---------- 房间去重（大面积环：面积差<10% 且 bbox 重叠>80% → 保留 _room_key 最优）----------
-    room_rings = [(r, a, b) for r, a, b in all_rings if a > FURNITURE_AREA_M2]
-    furn_rings = [(r, a, b) for r, a, b in all_rings if a <= FURNITURE_AREA_M2]
 
     room_keep = [True] * len(room_rings)
     for i in range(len(room_rings)):
@@ -825,6 +917,10 @@ def _parse_doc(doc, path: str, cfg: ParseConfig,
 
     rooms_with_saw = 0
     for r in kept_rooms:
+        # 墙弧房的短边是圆弧采样精度（半圆房实测 32 条、每段 0.196m），不是锯齿，
+        # 不计入警示——否则每个圆房都会报一条假警告。
+        if r.max_arc_radius >= WALL_ARC_RADIUS_M:
+            continue
         saw = count_short_edges(r.polygon, SAWTOOTH_EDGE_M)
         if saw:
             rooms_with_saw += 1

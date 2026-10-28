@@ -73,10 +73,12 @@ def extract_rings_from_line_arc(
     join_tolerance_mm: float = 0.5,
     auto_close_tolerance_mm: float = 1.0,
     split_at_t_junctions: bool = True,
-) -> List[Tuple[List[Point2], str]]:
+) -> List[Tuple[List[Point2], str, float]]:
     """遍历 LINE + ARC，按端点拼出若干闭合环（绘图单位 mm）。
 
-    返回：[(polygon_mm_points, handles_note_str), ...]
+    返回：[(polygon_mm_points, handles_note_str, max_arc_radius), ...]
+    max_arc_radius = 该环用到的最大圆弧半径（绘图单位；无弧 = 0.0）。环是墙围还是
+    家具轮廓靠它分：圆形/半圆形房间的面积读出来只有十几平米，会被面积阈值当家具。
     handles_note 用于去重/ID：拼环时用到的 handles 数量摘要（短 hash）。
 
     预处理：在 T 形交叉处分割 LINE —— 当一条 LINE 的端点落在另一条 LINE 的
@@ -91,7 +93,9 @@ def extract_rings_from_line_arc(
     """
     # ---- 阶段 1：收集原始 LINE 和 ARC 段 ----
     raw_lines: List[Tuple[Point2, Point2, str]] = []  # (p0, p1, handle)
-    arc_segs: List[Tuple[Point2, Point2, str]] = []
+    # (p0, p1, handle, 圆弧半径)：半径必须带到环上 —— 墙弧（>=1.5 m）是房间边，
+    # 圆桌的弧远小于此。面积分不开两者（半径 2.5 m 的整圆只有 19.6 m²），半径能。
+    arc_segs: List[Tuple[Point2, Point2, str, float]] = []
     for e in doc.modelspace():
         dtype = e.dxftype()
         layer = (e.dxf.layer or "").upper()
@@ -107,11 +111,12 @@ def extract_rings_from_line_arc(
                 continue
         elif dtype == "ARC":
             try:
+                radius = float(e.dxf.radius)
                 pts = arc_to_points(e.dxf.center, e.dxf.radius,
                                     e.dxf.start_angle, e.dxf.end_angle,
                                     chord_height_mm=max(join_tolerance_mm * 0.5, 0.1))
                 for i in range(len(pts) - 1):
-                    arc_segs.append((pts[i], pts[i + 1], h))
+                    arc_segs.append((pts[i], pts[i + 1], h, radius))
             except Exception:
                 continue
 
@@ -233,8 +238,9 @@ def extract_rings_from_line_arc(
     # ---- 阶段 3：构建 edges（q0/q1 相同的边去重，避免 2 边退化环）----
     edges: List[Dict[str, Any]] = []
     seen_edge_keys: Set[Tuple[Tuple[int, int], Tuple[int, int]]] = set()
-    all_segs = split_segs + arc_segs
-    for (p0, p1, handle) in all_segs:
+    # 直线段补 0 半径，与圆弧段并成同一种 4 元组
+    all_segs = [(p0, p1, h, 0.0) for (p0, p1, h) in split_segs] + arc_segs
+    for (p0, p1, handle, arc_radius) in all_segs:
         if abs(p0[0] - p1[0]) < 1e-9 and abs(p0[1] - p1[1]) < 1e-9:
             continue  # 零长度边丢弃
         q0 = _quantize(p0, join_tolerance_mm)
@@ -250,7 +256,7 @@ def extract_rings_from_line_arc(
         seen_edge_keys.add(edge_key)
         edges.append({
             "q0": q0, "q1": q1, "p0": p0, "p1": p1,
-            "handle": handle,
+            "handle": handle, "arc_radius": arc_radius,
         })
 
     if not edges:
@@ -262,7 +268,7 @@ def extract_rings_from_line_arc(
         index[edge["q0"]].append(i)
         index[edge["q1"]].append(i)
 
-    rings: List[Tuple[List[Point2], str]] = []
+    rings: List[Tuple[List[Point2], str, float]] = []
     seen_ring_hashes: Set[str] = set()  # 按边 idx 集合去重
 
     def _find_ring(start_idx: int, max_depth: int = 500) -> List[int] | None:
@@ -366,7 +372,8 @@ def extract_rings_from_line_arc(
         effective = len(poly) - 1 if poly[0] == poly[-1] else len(poly)
         if effective < 3:
             continue
-        rings.append((poly, _handles_note(path_edges, edges)))
+        max_arc_radius = max((edges[i]["arc_radius"] for i in path_edges), default=0.0)
+        rings.append((poly, _handles_note(path_edges, edges), max_arc_radius))
     return rings
 
 

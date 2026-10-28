@@ -320,7 +320,7 @@ def _rings_m(doc, split: bool):
         doc, edge_layers={"0"}, join_tolerance_mm=2.0, auto_close_tolerance_mm=4.0,
         split_at_t_junctions=split,
     )
-    return [([(x / 1000.0, y / 1000.0) for x, y in poly], note) for poly, note in rings]
+    return [([(x / 1000.0, y / 1000.0) for x, y in poly], note) for poly, note, _arc_r in rings]
 
 
 def test_split_at_t_junctions_true_produces_sawtooth_ring():
