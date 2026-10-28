@@ -94,6 +94,22 @@ def _polyline_points(entity, dxf_type: str) -> List[Point]:
     return out
 
 
+def _sample_circle(cx: float, cy: float, r: float,
+                   chord_height_mm: float = 0.5) -> List[Point]:
+    """把 CIRCLE 实体采样成闭合折线（按弦高误差控制密度）。
+
+    分支 A 原先只认 LWPOLYLINE/POLYLINE，CAD 里直接用 CIRCLE 画圆墙的图纸
+    两个分支都不收，rooms 记 0——评委「圆形含家具图纸识别为零」的成因之一。
+    """
+    ch = max(float(chord_height_mm), 1e-6)
+    ratio = 1.0 - ch / r
+    alpha = 2.0 * math.acos(max(-1.0, min(1.0, ratio)))
+    steps = max(4, int(math.ceil(2.0 * math.pi / alpha)))
+    return [(cx + r * math.cos(2.0 * math.pi * i / steps),
+             cy + r * math.sin(2.0 * math.pi * i / steps))
+            for i in range(steps)]
+
+
 def convert_to_meters(value: float, units: str) -> float:
     if units not in _UNIT_MAP:
         raise ValueError(f"未知单位: {units}")
@@ -293,15 +309,22 @@ def extract_rooms(doc: ezdxf.document.Drawing, cfg: ParseConfig) -> List[Room]:
     def to_m(v):
         return convert_to_meters(v, units)
 
-    # 分支 A：LWPOLYLINE / POLYLINE
+    # 分支 A：LWPOLYLINE / POLYLINE / CIRCLE（圆墙在 CAD 里常直接画成 CIRCLE 实体）
     for entity in doc.modelspace():
         dxf_type = entity.dxftype()
-        if dxf_type not in ("LWPOLYLINE", "POLYLINE"):
+        if dxf_type not in ("LWPOLYLINE", "POLYLINE", "CIRCLE"):
             continue
         if _entity_layer(entity) not in room_layers:
             continue
         try:
-            points = _polyline_points(entity, dxf_type)
+            if dxf_type == "CIRCLE":
+                center = entity.dxf.center
+                radius = float(entity.dxf.radius)
+                if radius <= 0:
+                    continue
+                points = _sample_circle(float(center[0]), float(center[1]), radius)
+            else:
+                points = _polyline_points(entity, dxf_type)
         except Exception as e:  # noqa
             logger.debug("取多段线顶点失败 layer=%s handle=%s: %s",
                          _entity_layer(entity), entity.dxf.handle, e)
