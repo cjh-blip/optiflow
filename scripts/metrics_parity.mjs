@@ -79,24 +79,40 @@ function parseEffectTable(markdown) {
 const COLS = ["valueText", "threshold", "verdict", "source"];
 const CN = { valueText: "实测值", threshold: "判据阈值", verdict: "判定", source: "出处" };
 
+// 2026-10-28 增：判据溯源三格（条款号 / 印刷页 / 条文原文）。
+// 嵌套取值用路径数组，与顶层列同一套比对逻辑。
+const EV_COLS = [
+  ["evidence", "clause"],
+  ["evidence", "page_print"],
+  ["evidence", "quote"],
+];
+for (const path of EV_COLS) CN[path.join(".")] = path.join(".");
+
+const pick = (row, col) => (Array.isArray(col)
+  ? col.reduce((o, k) => (o === null || o === undefined ? undefined : o[k]), row)
+  : row[col]);
+
 function compareJsVsPy(tag, jsRows, pyRows) {
   const byLabel = Object.fromEntries(jsRows.map((r) => [r.label, r]));
   const labels = Object.keys(byLabel);
   check(`${tag} 两侧行数一致`, labels.length === pyRows.length && labels.every((l) => pyRows.some((p) => p.label === l)),
         `JS ${labels.length} 行 / Py ${pyRows.length} 行`);
 
+  const cols = [...COLS, ...EV_COLS];
   let diffs = 0;
   for (const label of labels) {
     const py = pyRows.find((p) => p.label === label);
     if (!py) { console.log(`  ✗ Py 侧缺「${label}」`); diffs++; continue; }
-    for (const col of COLS) {
-      if (byLabel[label][col] !== py[col]) {
-        console.log(`  ✗ ${label} · ${CN[col]}：JS「${byLabel[label][col]}」 vs Py「${py[col]}」`);
+    for (const col of cols) {
+      const jsv = pick(byLabel[label], col);
+      const pyv = pick(py, col);
+      if (jsv !== pyv) {
+        console.log(`  ✗ ${label} · ${CN[Array.isArray(col) ? col.join(".") : col]}：JS「${jsv}」 vs Py「${pyv}」`);
         diffs++;
       }
     }
   }
-  check(`${tag} 逐格相同`, diffs === 0, diffs ? `${diffs} 处不同` : `${labels.length * COLS.length} 格全同（6 行 × ${COLS.length} 列）`);
+  check(`${tag} 逐格相同`, diffs === 0, diffs ? `${diffs} 处不同` : `${labels.length * cols.length} 格全同（${labels.length} 行 × ${cols.length} 列）`);
   return diffs;
 }
 
