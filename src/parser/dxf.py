@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -30,6 +31,67 @@ FURNITURE_AREA_M2 = 20.0
 WALL_RING_LAYER = "WALL-RING"
 
 _UNIT_MAP = {"mm": 0.001, "cm": 0.01, "m": 1.0, "inch": 0.0254}
+
+
+def _sample_arc_bulge(p1: Point, p2: Point, bulge: float,
+                      chord_height_mm: float = 0.5) -> List[Point]:
+    """把 LWPOLYLINE 一段 bulge 弧采样成折线点（不含两端点）。
+
+    bulge b = tan(θ/4)，θ 为该段圆心角（正 = 逆时针）。已知弦长 c 与方向，圆心落在
+    弦中垂线上、偏移 (c/2)/tan(θ/2)；采样密度按弦高误差控制，与 ARC 分支同一口径。
+
+    背景：`get_points("xy")` 只返回顶点，弧段信息在 bulge 里。整仓原先没有一处读 bulge，
+    于是带弧的房间被算成弦（D 形房间 15.00 m² 而真实 29.14 m²），再被 FURNITURE_AREA_M2
+    这个 20 m² 的分界判成家具，rooms 直接记 0。
+    """
+    x1, y1 = float(p1[0]), float(p1[1])
+    x2, y2 = float(p2[0]), float(p2[1])
+    b = float(bulge)
+    dx, dy = x2 - x1, y2 - y1
+    c = math.hypot(dx, dy)
+    if c <= 0.0 or abs(b) <= 1e-12:
+        return []
+    theta = 4.0 * math.atan(b)
+    mx, my = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    nx, ny = -dy / c, dx / c
+    d = (c / 2.0) / math.tan(theta / 2.0)
+    cx, cy = mx + nx * d, my + ny * d
+    r = math.hypot(x1 - cx, y1 - cy)
+    if r <= 0.0:
+        return []
+    ch = max(float(chord_height_mm), 1e-6)
+    alpha = 2.0 * math.acos(max(-1.0, min(1.0, 1.0 - ch / r)))
+    steps = max(1, int(math.ceil(abs(theta) / alpha))) if alpha > 0 else 1
+    start = math.atan2(y1 - cy, x1 - cx)
+    step = theta / steps
+    return [(cx + r * math.cos(start + i * step), cy + r * math.sin(start + i * step))
+            for i in range(1, steps)]
+
+
+def _polyline_points(entity, dxf_type: str) -> List[Point]:
+    """取多段线顶点；LWPOLYLINE 的 bulge 弧段在这里展开成折线。
+
+    无 bulge 时行为与 `get_points("xy")` 完全一致（逐点相同），所以既有图纸的结果不变。
+    """
+    if dxf_type != "LWPOLYLINE":
+        return [tuple(p)[:2] for p in entity.get_points("xy")]
+    raw = list(entity.get_points("xyseb"))
+    if not any(len(seg) > 4 and abs(float(seg[4])) > 1e-12 for seg in raw):
+        return [(float(seg[0]), float(seg[1])) for seg in raw]
+    closed = bool(getattr(entity, "closed", False))
+    n = len(raw)
+    out: List[Point] = []
+    for i, seg in enumerate(raw):
+        x, y = float(seg[0]), float(seg[1])
+        out.append((x, y))
+        bulge = float(seg[4]) if len(seg) > 4 else 0.0
+        if abs(bulge) <= 1e-12:
+            continue
+        if i + 1 >= n and not closed:
+            continue
+        nxt = raw[(i + 1) % n]
+        out.extend(_sample_arc_bulge((x, y), (float(nxt[0]), float(nxt[1])), bulge))
+    return out
 
 
 def convert_to_meters(value: float, units: str) -> float:
@@ -226,7 +288,7 @@ def extract_rooms(doc: ezdxf.document.Drawing, cfg: ParseConfig) -> List[Room]:
         if _entity_layer(entity) not in room_layers:
             continue
         try:
-            points = [tuple(p)[:2] for p in entity.get_points("xy")]
+            points = _polyline_points(entity, dxf_type)
         except Exception as e:  # noqa
             logger.debug("取多段线顶点失败 layer=%s handle=%s: %s",
                          _entity_layer(entity), entity.dxf.handle, e)
