@@ -223,7 +223,7 @@ STF 的判卷标准是**迁移等价性**，参照物在本仓冻结：
 
 1. **干净 clone 会少跑 2 条测试**：`test_exporter_stf.py` 有两条 `skipif` 依赖 `build/` 产物
    （`room_layout.json` / `test_room_1.stf`），而 `build/` 在 `.gitignore` 里。是 skip，不是失败。
-   实测：干净 clone `177 passed, 2 skipped`（本机全量 179）。
+   实测：本机全量 `456 passed / 3 skipped`（2026-10-28）；干净 clone 会再少跑这 2 条。
 2. **`.gitattributes` 强制 `*.stf` 保持 LF**：本机 `core.autocrlf=true`，CRLF 会让按字节比对的
    判卷基准在干净 clone 里假红（实测 2506B vs 2384B），已加防护并复测通过。
 3. **双 pythonpath 将长期保留**：`pyproject.toml` 同时挂 `"src"` 与 `"."`。被搬测试的
@@ -260,10 +260,11 @@ STF 的判卷标准是**迁移等价性**，参照物在本仓冻结：
 | 编排层 | ✅ 完成（任务分解 / 选能力 / 拼流水线 / 校验结果） |
 | 对外接口（HTTP + MCP） | ✅ 完成（服务门面 + HTTP 接口 + MCP server） |
 | P5 极简壳 → APP | ✅ 完成（单页「导入 CAD → 说目标 → 出结果 → 下载 STF」） |
-| 结果包抽取器（报表 PDF → schema v1） | ✅ 完成（2 页 / 29 页 / 31 页版全字段，含逐灯坐标；UGR 已落地：点记录列表，多观察点就绪） |
+| 结果包抽取器（报表 PDF → schema v1） | ✅ 完成（2 页 / 29 页 / 31 页版全字段，含逐灯坐标；UGR 已落地：点记录列表，多观察点就绪；2026-10-28 补 UGR 摘要行兑底＋CCT 混色温报范围） |
 | DXF 导入（评价点①） | ✅ 完成（`/import-dxf` + 壳上完整性检查 + 确认带入） |
 | 报告组装器（评价点④） | ✅ Markdown ＋ DOCX 主路径完成（7 块；PPT 导出待接） |
 | P1② DIALux 真机 UI 与落灯 | ✅ **已跑到底**（2026-10-11 同源链：房间/家具/灯具/计算/31 页报表，逐位对账成立；灯具以阵列形态建成） |
+| 真机链动作契约 | ✅ 前置条件四节定案（空项目导入 / 另存不覆盖 / UGR 真灯 / 家具口径 `furniture.from_ir` 单源，2026-10-28） |
 | P3 Creo 适配器 | ⛔ 需装机（本机未装 Creo/PTC） |
 | P4 Zemax 适配器（ZPL 降级路） | ⛔ 需装机（本机未装 Zemax） |
 

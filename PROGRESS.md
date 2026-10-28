@@ -1055,3 +1055,14 @@ UGR 观察点：CP1 计算点 1 (RUG) 16.2（最不利 240°，目标 ≤ 19，�
 - **推后实测（重要）**：旧 commit 页未登录 **HTTP 200**、旧 SHA 的 raw 仍可取到残留字符串、按旧 SHA 直连 `git fetch` **成功**——force push 不清 GitHub 缓存与悬垂对象，真要清得走 Support 工单。
 - **差点白做的坑**：远端残留的一条修复分支（分支名含该串，已删）仍指向重写前历史，导致全新 clone 依然能拿到旧提交。已删；删后新 clone 49 提交、旧 SHA 本地不可达、远端只剩 `main` + `v0.4.0`。**教训：重写必须清掉所有指向旧历史的 ref（分支/tag/fork/PR），少一条等于没做。**
 - **门实测（本机，重写后的 main）**：全树扫 硬门 0 / 软门 0；`pytest` 430 passed / 3 skipped；ruff 全绿；③⑤ 因缺入参跳过（不算过）。
+
+## 2026-10-28 · 缺陷 2/3 修复 ＋ 真机四发现定案 ＋ 三仓并线
+
+- **并线 Windows 三分支**：`fix/unit-scale-fallback`（缺陷 5 真根因＝两条入口 ParseConfig 不同 ＋ header `$INSUNITS` 撒谎；`geometry_fallback` 三道门、`units_source` 标注）、`fix/report-package-json`（抽数接口返回结果包，缺陷 1 平台半边）、app 仓 `feat/ui-base-page-dpi`（DPI 感知＋基准页对齐 design.md；合并时补回被重排丢掉的一键选灯/打交付包按钮，清掉两版缺陷 1 修复叠加的双重落盘）。
+- **新命令 `furniture.from_ir`**：IR 家具记录 → 真机链四字段（id/room_id/bbox/height_m）；bbox 缺失从 polygon 算 `[xmin,ymin,xmax,ymax]`、room_id 空报错点名。真机发现 C 的口径单源，TDD 6 测。
+- **契约「真机前置条件」四节**（`docs/action-contract.md`）：import_stf 空项目 / 保存另存不覆盖 / ugr 真灯前置 / 家具口径单源，对应真机实测两崩一挂一断点。
+- **缺陷 2**：`metrics_extra.cct_mixed_k` 全列色温，混色温显示「2700–4000 K（混色温）」，判定仍按首值；Python 与 JS（workbench/desktop 两壳 metrics.js 同源提交）同口径，parity 混色温样本 24 格全同。
+- **缺陷 3**：报表未勾眩光页但摘要表有「眩光评估 12.1」时兑底成单条 `source=summary` 记录，报告行标「摘要行」；词汇表解释性文字不带数值，不兑底。
+- **门禁**：456 passed / 3 skipped、ruff 0（2026-10-28 Mac 实跑）；跨仓同图 4/4。
+- **推送**：optiflow main `4c5a50a`、dialux-compiler `58d75a2`、optiflow-app `8a1f7a7`、workbench `83398b4`、desktop `43895ae`；远端已合分支全删。
+- **协同机制变更**：交接区新立 `协同状态板.md`（Syncthing 秒级双向，2026-10-28 cjh 选「轻量恢复」）；日常状态走板，信件只用于长说明。
