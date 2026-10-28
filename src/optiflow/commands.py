@@ -188,6 +188,67 @@ def _cmd_ir_validate(*, ir: Any) -> Dict[str, Any]:
     }
 
 
+def _pt_xy(pt: Any) -> Tuple[float, float]:
+    """polygon 点可能是 [x, y] 或带 x/y 属性的对象，统一取二维。"""
+    if hasattr(pt, "x") and hasattr(pt, "y"):
+        return float(pt.x), float(pt.y)
+    return float(pt[0]), float(pt[1])
+
+
+def _cmd_furniture_from_ir(*, ir: Any) -> Dict[str, Any]:
+    """IR 家具记录 → dc 真机链 `_validate_furniture` 认的四字段参数。
+
+    为什么要平台统一做：真机实测（2026-10-28）发现 IR 家具字段与 dc 校验
+    要求对不上，当时是现场手拼。若每个前端各拼一套，bbox 口径（起点、
+    顺序、是否外接矩形）会十人十样。所以口径收敛到这里：
+
+    - ``bbox`` 有就用，没有就从 ``polygon`` 算 ``[xmin, ymin, xmax, ymax]``；
+    - ``room_id`` 空（解析时未归属到房间）直接报错点名，不静默跳过；
+    - 输出只留 dc 认的四字段，多余字段剥掉。
+    """
+    data = _read_json(ir) if isinstance(ir, str) else ir
+    if not isinstance(data, dict):
+        raise CommandError("furniture.from_ir：IR 必须是对象")
+    entries: list = []
+    for storey in data.get("storeys") or []:
+        for space in (storey or {}).get("spaces") or []:
+            for f in (space or {}).get("furniture") or []:
+                if isinstance(f, dict):
+                    entries.append(f)
+    if not entries:
+        raise CommandError("furniture.from_ir：IR 里没有家具记录（storeys[*].spaces[*].furniture 为空）")
+
+    items: list = []
+    for f in entries:
+        fid = f.get("id")
+        if not fid:
+            raise CommandError("furniture.from_ir：家具记录缺 id")
+        room_id = f.get("room_id")
+        if not room_id:
+            raise CommandError(
+                f"furniture.from_ir：家具 {fid} 未归属到任何房间（room_id 为空），"
+                "请指定房间或从输入剔除")
+        bbox = f.get("bbox")
+        if not bbox:
+            pts = [_pt_xy(p) for p in (f.get("polygon") or [])]
+            if len(pts) < 3:
+                raise CommandError(f"furniture.from_ir：家具 {fid} 既无 bbox 也无可用 polygon")
+            bbox = [min(p[0] for p in pts), min(p[1] for p in pts),
+                    max(p[0] for p in pts), max(p[1] for p in pts)]
+        if len(bbox) != 4:
+            raise CommandError(f"furniture.from_ir：家具 {fid} 的 bbox 必须有 4 个值")
+        h = f.get("height_m")
+        if h is None or float(h) <= 0:
+            raise CommandError(f"furniture.from_ir：家具 {fid} 的 height_m 必须为正")
+        items.append({
+            "id": fid,
+            "room_id": room_id,
+            "bbox": [float(v) for v in bbox],
+            "height_m": float(h),
+        })
+    return {"count": len(items), "items": items}
+
+
 def _cmd_service_capabilities() -> Dict[str, Any]:
     """能力目录：动作表 ＋ 适配器能力声明，给 agent 用来枚举「这副牌有什么」。"""
     return {"adapters": _service().capabilities(), "commands": list_commands()}
@@ -296,6 +357,14 @@ _COMMANDS: Tuple[Command, ...] = (
         group="plan",
         description="IR 校验：jsonschema ＋ 七条业务规则，返回逐条违规",
         returns="{count, halt[], violations[]}",
+        params=(Param("ir", "json", help="IR：绝对路径或已解析的对象"),),
+    ),
+    Command(
+        id="furniture.from_ir",
+        handler=_cmd_furniture_from_ir,
+        group="furniture",
+        description="IR 家具记录 → 真机链四字段参数（id/room_id/bbox/height_m）；bbox 缺失从 polygon 算，room_id 为空直接报错点名；口径只此一处",
+        returns="{count, items[{id,room_id,bbox,height_m}]}",
         params=(Param("ir", "json", help="IR：绝对路径或已解析的对象"),),
     ),
     Command(
