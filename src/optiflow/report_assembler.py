@@ -444,6 +444,34 @@ def _render_block(images: Optional[Sequence[Any]]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _quote_lines(rules: Sequence[Dict[str, Any]]) -> List[str]:
+    """「依据原文」小节：每条款一行，同条款去重（按首次出现顺序）。
+
+    为什么要去重：会议室的照度/UGR/均匀度/Ra 四条判据都引 5.3.2，重复四遍
+    只会让报告变长而不会多出一丝信息。无条款号的旧判据表不出这个小节。
+    """
+    seen: Dict[str, Dict[str, Any]] = {}
+    for rule in rules:
+        clause = rule.get("clause")
+        if clause and clause not in seen:
+            seen[clause] = rule
+    if not seen:
+        return []
+    lines = ["", "### 依据原文", ""]
+    for clause, rule in seen.items():
+        standard = rule.get("standard") or STANDARD
+        pages = []
+        if rule.get("page_print"):
+            pages.append(f"印刷 {rule['page_print']}")
+        if rule.get("page_pdf"):
+            pages.append(f"PDF {rule['page_pdf']}")
+        where = f"{standard}，" + " / ".join(pages) if pages else standard
+        head = f"- **{clause} 条**（{where}）"
+        quote = rule.get("quote")
+        lines.append(f"{head}：{quote}" if quote else head)
+    return lines
+
+
 def _standard_block(crit: Dict[str, Dict[str, Any]], criteria_raw: Optional[Dict[str, Any]]) -> str:
     lines = [_block_header("4. 对标国标"), ""]
     if not crit:
@@ -469,6 +497,7 @@ def _standard_block(crit: Dict[str, Dict[str, Any]], criteria_raw: Optional[Dict
     cct = crit.get("cct_k")
     if cct is None:
         lines.append(f"| 相关色温 CCT | —（{STANDARD} 未对会议室规定色温限值） | — |")
+    lines.extend(_quote_lines([r for r in (crit.get(m["crit"]) for m in _METRICS) if r]))
     if criteria_raw and criteria_raw.get("unevidenced"):
         lines.append("")
         lines.append("未取证项（不参与判定）：")

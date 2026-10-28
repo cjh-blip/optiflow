@@ -405,3 +405,39 @@ def test_mixed_cct_displays_range_with_note() -> None:
     row = next(r for r in metrics_rows(pkg) if r["key"] == "cct_k")
     assert row["valueText"] == "2700–4000 K（混色温）"
     assert row["value"] == 2700.0
+
+
+def _rule(metric: str, clause: str, table: str, page_pdf: int, page_print: int, quote: str) -> dict:
+    return {"metric": metric, "label": metric, "op": ">=", "value": 1, "unit": "-",
+            "standard": "GB/T 50034-2024", "table": table, "clause": clause,
+            "page_pdf": page_pdf, "page_print": page_print, "quote": quote,
+            "status": "verified"}
+
+
+def test_standard_block_lists_clause_sources_deduped() -> None:
+    """「依据原文」小节：同一条款被多条判据引用只列一次，带页码与条文正文。"""
+    from optiflow.report_assembler import _criteria_index, _standard_block
+
+    q532 = "办公建筑照明标准值应符合表 5.3.2 的规定。"
+    rules = [
+        _rule("illuminance_avg", "5.3.2", "表 5.3.2", 37, 28, q532),
+        _rule("ugr", "5.3.2", "表 5.3.2", 37, 28, q532),
+        _rule("uniformity_u0", "5.3.2", "表 5.3.2", 37, 28, q532),
+        _rule("lpd_target", "6.3.5", "表 6.3.5", 65, 56, "目标值应符合表 6.3.5 的规定。"),
+    ]
+    text = _standard_block(_criteria_index({"scenes": {"m": {"criteria": rules}}}), None)
+    assert "### 依据原文" in text
+    assert text.count("**5.3.2 条**") == 1
+    assert "**6.3.5 条**" in text
+    assert "印刷 28 / PDF 37" in text
+    assert q532 in text
+
+
+def test_standard_block_omits_section_without_clause() -> None:
+    """全无条款号时不输出空标题（旧判据表也能跑，不出空小节）。"""
+    from optiflow.report_assembler import _criteria_index, _standard_block
+
+    rules = [{"metric": "illuminance_avg", "label": "Ē", "op": ">=", "value": 300,
+              "unit": "lx", "standard": "GB/T 50034-2024", "table": "表 5.3.2"}]
+    text = _standard_block(_criteria_index({"scenes": {"m": {"criteria": rules}}}), None)
+    assert "### 依据原文" not in text
