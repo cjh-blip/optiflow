@@ -256,6 +256,9 @@ class PlatformService:
             "source_pdf": str(path),
             "render_images": images or [],
             "package_missing": package.get("_missing") or [],
+            # 结果包本体也带出去：抽数动作是「PDF → 结果包 json」目前唯一的入口，
+            # 调用方（如壳）要落盘 package.json 供 report.metrics / report.assemble 复用
+            "package": package,
             "markdown": markdown,
         }
 
