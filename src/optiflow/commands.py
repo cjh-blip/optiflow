@@ -125,6 +125,25 @@ def _cmd_plan_light_backcalc(*, area_m2: float, target_lux: float,
                     lpd_cap=lpd_cap, count=count)
 
 
+def _cmd_plan_select_luminaire(*, area_m2: float, target_lux: float,
+                               count: Optional[int] = None,
+                               cct_k: Optional[int] = None,
+                               max_power_w: Optional[float] = None,
+                               cu: Optional[float] = None, mf: Optional[float] = None,
+                               lpd_cap: Optional[float] = None,
+                               index_path: Optional[str] = None,
+                               limit: int = 5) -> Dict[str, Any]:
+    """选灯（库函数 `optiflow.luminaire_selection.select_for_room` 的注册表入口）。
+
+    反推单灯光通量后到灯具库里挑候选；不排灯位、不送灯（送灯走 dialux.real.*）。
+    """
+    from optiflow.luminaire_selection import select_for_room
+
+    return select_for_room(area_m2=area_m2, target_lux=target_lux, count=count,
+                           cct_k=cct_k, max_power_w=max_power_w, cu=cu, mf=mf,
+                           lpd_cap=lpd_cap, index_path=index_path, limit=limit)
+
+
 def _cmd_report_assemble(*, package: Any, criteria: Any = None, price: Any = None,
                          project_name: str = "会议室照明设计",
                          generated_on: Optional[str] = None) -> Dict[str, Any]:
@@ -312,6 +331,26 @@ _COMMANDS: Tuple[Command, ...] = (
             Param("mf", "float", required=False, help="维护系数 0~1（缺省 0.8）"),
             Param("lpd_cap", "float", required=False, help="LPD 上限 W/㎡（给了才算功率天花板）"),
             Param("count", "int", required=False, help="预计灯数（给了才摊单灯光通量/功率）"),
+        ),
+    ),
+    Command(
+        id="plan.select_luminaire",
+        handler=_cmd_plan_select_luminaire,
+        group="plan",
+        description=("选灯：面积＋目标照度（＋灯数/色温/功率上限）→ 按单灯光通量匹配的灯具候选；"
+                     "色温与功率是硬筛，流明差距只排序，不排灯位、不送灯"),
+        returns="{candidates[], backcalc, state, evidence}",
+        params=(
+            Param("area_m2", "float", help="房间面积（㎡）"),
+            Param("target_lux", "float", help="目标维持平均照度（lx，取项目判据值）"),
+            Param("count", "int", required=False, help="预计灯数（选单灯规格必需）"),
+            Param("cct_k", "int", required=False, help="色温硬筛（K，如 4000）"),
+            Param("max_power_w", "float", required=False, help="单灯功率上限（W）"),
+            Param("cu", "float", required=False, help="利用系数 0~1（缺省 0.6）"),
+            Param("mf", "float", required=False, help="维护系数 0~1（缺省 0.8）"),
+            Param("lpd_cap", "float", required=False, help="LPD 上限 W/㎡"),
+            Param("index_path", "path", required=False, help="灯具库索引 JSON（缺省查环境变量/包内）"),
+            Param("limit", "int", required=False, default=5, help="候选数量上限"),
         ),
     ),
     Command(
