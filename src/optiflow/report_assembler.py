@@ -332,6 +332,31 @@ def _fmt_metric_value(pkg: Dict[str, Any], metric: Dict[str, Any], value: Any) -
     return _fmt_num(value, metric["unit"])
 
 
+def _evidence(rule: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """判据溯源结构：标准号 / 表号 / 条款号 / 双页码 / 条文原文 / 复核状态。
+
+    为什么要三道全齐才输出：一条依据只说得出「表 5.3.2」却说不出条款号，
+    看的人无法回原文核——半条依据比没有依据更容易误导。三者缺一即返回 None，
+    页码与原文缺失则填 None（宁缺不猜，不编造页码）。
+    """
+    if not rule:
+        return None
+    standard = rule.get("standard")
+    table = rule.get("table")
+    clause = rule.get("clause")
+    if not (standard and table and clause):
+        return None
+    return {
+        "standard": standard,
+        "table": table,
+        "clause": clause,
+        "page_pdf": rule.get("page_pdf"),
+        "page_print": rule.get("page_print"),
+        "quote": rule.get("quote"),
+        "status": rule.get("status"),
+    }
+
+
 def metrics_rows(pkg: Dict[str, Any],
                  criteria: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """六项指标**作为数据**（不是 markdown）。
@@ -340,7 +365,9 @@ def metrics_rows(pkg: Dict[str, Any],
     里那段拼字串，谁想拿数据就只能去解析 markdown；这一层把两者拉到同一处，
     报告块与数据不可能再分叉。
 
-    返回：[{key, label, unit, value, valueText, threshold, verdict, source}]，顺序固定。
+    返回：[{key, label, unit, value, valueText, threshold, verdict, source, evidence}]，
+    顺序固定。`evidence` 是判据溯源（标准号/表号/条款号/双页码/条文原文），
+    无判据或三者不全时为 None（见 `_evidence`）。
     """
     crit = _criteria_index(criteria)
     rows: List[Dict[str, Any]] = []
@@ -356,6 +383,7 @@ def metrics_rows(pkg: Dict[str, Any],
             "threshold": (_crit_text(rule) or "—（标准未规定）") if rule else "—（标准未规定）",
             "verdict": _judge(value, rule.get("op"), rule.get("value")),
             "source": f"{rule.get('standard', '')} {rule.get('table', '')}".strip() if rule else "",
+            "evidence": _evidence(rule),
         })
     return rows
 
