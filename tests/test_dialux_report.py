@@ -461,6 +461,25 @@ def test_summary_line_without_number_does_not_fabricate() -> None:
     assert out["workplane"]["ugr"] is None
 
 
+def test_summary_line_real_layout_footnote_and_sub_label() -> None:
+    """真机摘要表形态：标签带脚注标记、值前隔一行子标签（2026-10-30 真机 4 页报表）。
+
+    原文：``眩光评估(1) / RUG, max / 11 / ≤ 19``。修复前要求「紧跟数值」，
+    这条永远抽不到，真机样本 ugr 恒 null。
+    """
+    out = parse_report_text("眩光评估(1)\nRUG, max\n11\n≤ 19\n")
+    pts = out["workplane"]["ugr"]
+    assert len(pts) == 1
+    assert pts[0]["ugr_max"] == 11.0
+    assert pts[0]["source"] == "summary"
+
+
+def test_summary_sub_label_must_contain_letters() -> None:
+    """中间行没有 ASCII 字母时不兜底：纯数字行、纯中文说明行都不能被当成眩光值。"""
+    assert parse_report_text("眩光评估\n说明文字\n500\n")["workplane"]["ugr"] is None
+    assert parse_report_text("眩光评估\n11\n500\n")["workplane"]["ugr"][0]["ugr_max"] == 11.0
+
+
 # ---------------------------------------------------------------- 缺陷 2：混色温
 
 def test_mixed_cct_lists_all_and_keeps_first() -> None:

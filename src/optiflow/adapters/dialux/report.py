@@ -432,14 +432,29 @@ def parse_ugr_panel(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+# 摘要行「眩光评估(1) / RUG, max / 11」：真机摘要表把标签与值用脚注标记和子标签
+# 隔开（2026-10-30 真机 4 页报表实测）。中间最多容一行子标签，且该行必须含 ASCII
+# 字母（纯数字行、纯中文说明行不算），否则词汇表/其他表格行会被误认为眩光值。
+_SUMMARY_GLARE = re.compile(
+    rf"眩光评估(?:\(\d+\))?\s*[:：]?\s*\n?"
+    rf"(?:(?=[^\n]*[A-Za-z])[^\n]{{1,24}}\n)?"
+    rf"\s*({_NUM})"
+)
+
+
 def _ugr_summary(text: str) -> Optional[List[Dict[str, Any]]]:
     """摘要表「眩光评估 12.1」兜底（缺陷 3）。
 
     报表未勾眩光计算页时 ``_ugr_points`` 拿不到块；但摘要表仍有一行眩光评估值。
-    只在该行**紧跟数值**时兑底（词汇表的解释性文字不兑），出处标 ``source="summary"``，
-    报告层带「摘要行」注记，不与眩光块记录混同。
+    出处标 ``source="summary"``，报告层带「摘要行」注记，不与眩光块记录混同。
+
+    真机摘要表的形态是 ``眩光评估(1) / RUG, max / 11 / ≤ 19``——标签后跟脚注
+    标记、值前还隔一行子标签（2026-10-30 真机 4 页报表实测）。所以不能要求
+    紧跟紧邻：中间最多允许一行**含 ASCII 字母**的子标签。只靠“中间容一行”
+    还不够安全，所以子标签必须带字母（纯数字行、纯中文说明行都不算），
+    以免把词汇表或别的表格行当成眩光值。
     """
-    m = re.search(rf"眩光评估\s*[:：]?\s*\n?\s*({_NUM})", text)
+    m = _SUMMARY_GLARE.search(text)
     if not m:
         return None
     rec = _ugr_record("摘要", m.group(1))
