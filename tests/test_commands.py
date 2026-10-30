@@ -284,6 +284,28 @@ def test_mcp_schema_json_accepts_object_array_or_path_string():
     assert "array" in props["images"]["type"], "images 能直接给列表"
 
 
+def test_every_json_param_schema_is_three_shaped():
+    """全量守卫：凡 `type=json` 的参数，schema 必须同时接受 object/array/string。
+
+    上一条只抽查了两个动作，将来新加的 json 参数漏写就会溜过去；这条按注册表全扫。
+    口径见 docs/action-contract.md 约定 1（"不让 schema 比实现窄"）。
+    """
+    from optiflow.commands import COMMANDS
+    from optiflow.mcp import TOOLS_BY_NAME
+
+    want = {"object", "array", "string"}
+    off = []
+    for cid, cmd in COMMANDS.items():
+        props = (TOOLS_BY_NAME.get(cid) or {}).get("inputSchema", {}).get("properties") or {}
+        for p in cmd.params:
+            if p.type != "json":
+                continue
+            got = props.get(p.name, {}).get("type")
+            if not got or set(got) != want:
+                off.append(f"{cid}.{p.name}={got}")
+    assert not off, "json 参数的 schema 形状与实现不一致：" + "、".join(off)
+
+
 # ------------------------------------------------- 指标板作为数据（Windows 视图与断言都吃它）
 #: 内置合成样本：不依赖任何外部数据文件，也让测试能在任何机器上跑
 SAMPLE_PKG = {
