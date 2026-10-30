@@ -39,6 +39,9 @@ class Param:
     required: bool = True
     default: Any = None
     help: str = ""
+    #: 有限取值：给了就把可取的值列进 MCP schema，别让调用方猜（枚举只进 schema，不进
+    #: `spec()`——那是 HTTP/CLI 的对外形状，2026-10-30 这轮不改它）。
+    enum: Optional[Tuple[Any, ...]] = None
 
 
 @dataclass(frozen=True)
@@ -89,7 +92,21 @@ def _service() -> Any:
 
 # ----------------------------------------------------------------- 适配函数
 def _read_json(path: str) -> Any:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    """读一份 JSON。读不到时把「哪个文件、为什么」说清楚。
+
+    不在这里漏裸 `FileNotFoundError`：那是 OSError，不是 ValueError，会一路穿过
+    MCP `tools/call` 的 `except (KeyError, ValueError, RuntimeError)`，最后落进
+    `serve_stdio` 的兜底，变成 JSON-RPC **-32603 internal error**——模型看到的是
+    「工具崩了」而不是「路径写错了」，于是放弃重试（判据：报错要教下一步）。
+    """
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise CommandError(f"找不到文件 {path}") from None
+    except OSError as exc:
+        # 目录、无读权限……各平台错的子类不一样（Windows 上拿目录会报 PermissionError），
+        # 所以不再逐个子类枚举，把系统给的原话一并抬上去。
+        raise CommandError(f"读不了 {path}（{exc.strerror or exc}）") from None
 
 
 def _cmd_plan_summary(*, dxf: str, config: str, dxf_lum: Optional[str] = None,
@@ -515,9 +532,16 @@ def get(command_id: str) -> Command:
     return cmd
 
 
-def _coerce(param: Param, value: Any) -> Any:
+def _coerce(param: Param, value: Any, command_id: str = "") -> Any:
+    """把调用方给的原始值按声明转一下。
+
+    报错里必须带**动作 id ＋ 参数名 ＋ 该填什么**：早先这里把参数名当动作名说
+    （「动作 package 参数类型不对」），模型拿到的是「有个叫 package 的动作」，
+    才知道自己在填哪一步填错了。
+    """
     if value is None or value == "":
         return None
+    where = f"动作 {command_id} 的 {param.name} 参数" if command_id else f"{param.name} 参数"
     try:
         if param.type == "int":
             return int(value)
@@ -529,8 +553,17 @@ def _coerce(param: Param, value: Any) -> Any:
             return str(value).strip().lower() in ("1", "true", "yes", "y", "on")
         if param.type == "json" and isinstance(value, str):
             return _read_json(value)
+    except CommandError as exc:
+        # _read_json 只知道「找不到哪个文件」，这里补上「哪个动作的哪个参数」再往上抛，
+        # 否则模型拿到的是「找不到文件」，得自己回头猜是在哪一步填错。
+        hint = "；它可以给已解析的对象，也可以给一份 JSON 文件的绝对路径" if param.type == "json" else ""
+        raise CommandError(f"{where}：{exc}{hint}") from None
     except (TypeError, ValueError):
-        raise CommandError(f"动作 {param.name} 参数类型不对（期望 {param.type}，拿到 {value!r}）") from None
+        hint = ("它可以给已解析的对象，也可以给一份 JSON 文件的绝对路径"
+                if param.type == "json" else (param.help or ""))
+        tail = f"；{hint}" if hint else ""
+        raise CommandError(
+            f"{where}：期望 {param.type}，拿到 {value!r}{tail}") from None
     return value
 
 
@@ -545,7 +578,7 @@ def call(command_id: str, params: Optional[Dict[str, Any]] = None) -> Any:
     kwargs: Dict[str, Any] = {}
     for p in cmd.params:
         if p.name in provided:
-            kwargs[p.name] = _coerce(p, provided[p.name])
+            kwargs[p.name] = _coerce(p, provided[p.name], command_id)
         elif p.required:
             raise CommandError(f"动作 {command_id} 缺必填参数：{p.name}（{p.help or p.type}）")
         elif p.default is not None:

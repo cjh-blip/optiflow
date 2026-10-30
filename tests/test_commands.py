@@ -108,6 +108,41 @@ def test_param_type_error_is_clear():
     assert "ceil_h" in str(e.value)
 
 
+def test_param_type_error_names_action_and_param():
+    """报错要说清「哪个动作的哪个参数」。
+
+    以前写成 `动作 {param.name} 参数类型不对`，参数名占着动作名的位置，模型读到的
+    是「有个叫 package 的动作」——连是在哪一步填错都不知道。
+    """
+    with pytest.raises(CommandError) as e:
+        call("plan.summary", {"dxf": str(ROOM), "config": str(CFG), "ceil_h": "四米"})
+    msg = str(e.value)
+    assert "plan.summary" in msg and "ceil_h" in msg
+
+
+def test_missing_json_file_is_command_error_with_action_and_param(tmp_path):
+    """json 参数指向不存在的文件：必须是 CommandError（ValueError 系），不是裸 OSError。
+
+    裸 FileNotFoundError 会穿过工具层兜底，变成 JSON-RPC -32603，模型以为服务器崩了。
+    """
+    ghost = tmp_path / "not_here.json"
+    with pytest.raises(CommandError) as e:
+        call("report.assemble", {"package": str(ghost)})
+    msg = str(e.value)
+    assert isinstance(e.value, ValueError)          # HTTP 层靠这个映射 400
+    assert "report.assemble" in msg and "package" in msg
+    assert "not_here.json" in msg
+    assert "绝对路径" in msg or "已解析的对象" in msg   # 教它下一步能怎么填
+
+
+def test_unreadable_json_param_is_command_error(tmp_path):
+    """读不了的文件（这里拿目录当文件）：同样是 CommandError，带动作、参数、路径。"""
+    with pytest.raises(CommandError) as e:
+        call("report.metrics", {"package": str(tmp_path)})
+    msg = str(e.value)
+    assert "report.metrics" in msg and str(tmp_path) in msg
+
+
 def test_action_failure_propagates():
     with pytest.raises(Exception):
         call("plan.summary", {"dxf": str(CFG), "config": str(CFG)})  # 拿 JSON 当 DXF
@@ -186,6 +221,67 @@ def test_mcp_registry_tool_dispatches(tmp_path):
     assert reply is not None and "result" in reply
     text = reply["result"]["content"][0]["text"]
     assert "room_count" in text or "checks" in text
+
+
+def test_mcp_missing_path_param_is_tool_error_not_protocol_error(tmp_path):
+    """`path` 类参数指向不存在的文件，也得是 isError 的工具结果，不能是 -32603。
+
+    MCP 约定：工具自己能说清的错走 result ＋ isError，模型读到原因还能自己改正；
+    -32603 是协议故障信号，很多客户端看到就当「工具崩了」放弃重试。
+    """
+    from optiflow.mcp import handle_message
+    from optiflow.service import build_default_service
+
+    msg = {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+           "params": {"name": "plan.summary",
+                      "arguments": {"dxf": str(tmp_path / "ghost.dxf"), "config": str(CFG)}}}
+    reply = handle_message(build_default_service(output_root=tmp_path), msg)
+    assert reply is not None and "error" not in reply, "落进协议层了：-32603 会让模型以为工具崩了"
+    assert reply["result"]["isError"] is True
+    text = reply["result"]["content"][0]["text"]
+    assert "ghost.dxf" in text, text
+
+
+# ------------------------------------------- 参数声明（default / enum / json 形状）要发出去
+def test_mcp_schema_carries_param_default():
+    """注册表里声明的 default 必须落到 MCP schema，否则模型看不见，就无法「只说变的那部分」。"""
+    from optiflow.mcp import TOOLS_BY_NAME
+
+    props = TOOLS_BY_NAME["plan.select_luminaire"]["inputSchema"]["properties"]
+    assert props["limit"]["default"] == 5
+    props = TOOLS_BY_NAME["report.assemble"]["inputSchema"]["properties"]
+    assert props["project_name"]["default"] == "会议室照明设计"
+
+
+def test_mcp_schema_carries_enum_for_closed_sets():
+    from optiflow.commands import Command, Param
+    from optiflow.mcp import _json_schema
+
+    cmd = Command(id="probe.enum", handler=lambda **_: {}, group="meta",
+                  params=(Param("mode", "str", help="模式", enum=("a", "b")),))
+    assert _json_schema(cmd)["properties"]["mode"]["enum"] == ["a", "b"]
+
+
+def test_spec_shape_unchanged_by_enum():
+    """enum 只进 MCP schema；`spec()` 是 HTTP/CLI 的对外形状，不能多/少字。"""
+    from optiflow.commands import Command, Param
+
+    cmd = Command(id="probe.shape", handler=lambda **_: {}, group="meta",
+                  params=(Param("mode", "str", help="模式", enum=("a", "b")),))
+    assert set(cmd.spec()["params"][0]) == {"name", "type", "required", "default", "help"}
+
+
+def test_mcp_schema_json_accepts_object_array_or_path_string():
+    """json 参数实情上吃对象、数组（如 images）、以及 JSON 文件路径。
+
+    只写 object 会把后两种在 schema 上判成非法，与 help 文案和 `_coerce` 自相矛盾。
+    """
+    from optiflow.mcp import TOOLS_BY_NAME
+
+    props = TOOLS_BY_NAME["report.assemble_from_pdf"]["inputSchema"]["properties"]
+    assert set(props["package" if "package" in props else "criteria"]["type"]) >= {"object", "string"}
+    assert "string" in props["images"]["type"], "images 能给路径字符串"
+    assert "array" in props["images"]["type"], "images 能直接给列表"
 
 
 # ------------------------------------------------- 指标板作为数据（Windows 视图与断言都吃它）

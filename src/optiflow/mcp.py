@@ -211,15 +211,25 @@ def _registry_handler(command_id: str):
 def _json_schema(cmd: Any) -> Dict[str, Any]:
     # json 必须映射成 object：漏了它，带 json 参数的动作在 AI 眼里是个空盒子（{}），
     # 不知道能塞什么只能猜（设计稿 G2）。Param.type 在 commands.py 已声明支持 json。
+    #
+    # json 实际接受三种形状（见 `_coerce`：字符串按「JSON 文件路径」读）：已解析对象、
+    # 数组（如 `images`）、以及 JSON 文件的绝对路径。只写 object 会把后两种在 schema 上
+    # 判成非法，与 help 文案自相矛盾，所以列全。
     type_map = {"str": "string", "path": "string", "markdown": "string",
                 "int": "integer", "float": "number", "bool": "boolean",
-                "json": "object"}
+                "json": ["object", "array", "string"]}
     props: Dict[str, Any] = {}
     required: List[str] = []
     for p in cmd.params:
         js_type = type_map.get(p.type)
         props[p.name] = ({"type": js_type} if js_type else {})
         props[p.name]["description"] = p.help or p.type
+        # 默认值与有限取值必须发出去：注册表声明了却没落到 schema，模型就只能自己猜
+        # 该不该填、能填哪些（AWS 判据：常用值设成默认，能枚举就别让人猜）。
+        if p.default is not None:
+            props[p.name]["default"] = p.default
+        if p.enum:
+            props[p.name]["enum"] = list(p.enum)
         if p.required:
             required.append(p.name)
     schema: Dict[str, Any] = {"type": "object", "properties": props}
@@ -331,7 +341,10 @@ def handle_message(service: PlatformService, message: Dict[str, Any]) -> Optiona
         except KeyError as exc:
             return _ok(request_id, _text_result(
                 {"error": f"缺少参数或对象不存在：{exc}"}, is_error=True))
-        except (ValueError, RuntimeError) as exc:
+        except (ValueError, RuntimeError, OSError) as exc:
+            # OSError 也要收：`path` 类参数指向不存在的文件时，异常从 handler 里抛出来，
+            # 不在这里接住就会落进 serve_stdio 的兜底，变成 JSON-RPC -32603。那告诉模型
+            # 「服务器崩了」，而事实是「你把路径写错了」——它应该读到原因并自己改正。
             return _ok(request_id, _text_result(
                 {"error": f"{type(exc).__name__}: {exc}"}, is_error=True))
         return _ok(request_id, _text_result(payload))
