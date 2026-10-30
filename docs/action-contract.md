@@ -61,10 +61,14 @@ call("plan.summary", {"dxf": "...", "config": "..."})   # 返回 dict
 ## 约定
 
 1. **参数类型白名单**：`str` / `int` / `float` / `bool` / `json` / `path` / `markdown`。
-   `json` 类参数既可给已解析的对象，也可给 JSON 文件路径（本表替你读）。
+   `json` 类参数既可给已解析的对象，也可给数组（如 `images`），也可给 JSON 文件路径（本表替你读）。
+   这三种形状在 MCP schema 里也如实写出（`object/array/string`），不让 schema 比实现窄。
 2. **多给参数报错**：不认识的键**不静默忽略**，直接报「不认识参数，它认这些」。
 3. **少给必填报错**：说清缺哪个、那是什么。
 4. **失败抛异常**：库层不管用户界面（与 `plan_summary` 同一纪律）；壳负责把异常变成人话。
+   报错必须带全「**哪个动作、哪个参数、该填什么**」——`CommandError` 一律 `ValueError` 系，
+   读文件失败（`FileNotFoundError` / 其余 `OSError`）也在这里转成 `CommandError`，不漏裸 `OSError`：
+   漏出去会穿过 MCP `tools/call` 的兜底，变成 JSON-RPC `-32603`，模型以为工具崩了而不是自己路径写错。
 5. **路径由调用方给**：本表不做 cwd 猜测（`ParseConfig.from_json` 是裸 `read_text`，相对路径会踩空）。
 6. **加新动作两步**：`commands.py` 登记一条 ＋ `tests/test_commands.py` 加一条（能调用、能报错）。
 
@@ -149,3 +153,5 @@ register(Command(id="dialux.parse", handler=..., group="dialux",
 - 2026-10-28：新增 `furniture.from_ir`（真机发现 C 的接口断点：IR 家具缺 room_id/bbox）；新增「真机前置条件」四节（空项目导入 / 另存不覆盖 / UGR 真灯前置 / 家具口径单源），对应真机实测两崩一挂一断点。
 - 2026-10-28（判据溯源）：`report.metrics` 每行增 `evidence{standard,table,clause,page_pdf,page_print,quote,status}` —— 判据表每条规则补 `clause`（条款号）与 `quote`（校对后的条文正文），报告「对标国标」段随之多一节「依据原文」（同条款去重）。三者（standard/table/clause）缺一即整条 evidence 为 null；无判据表时也为 null。两壳 `metrics.js` 同口径，跨语言断言扩到证据列（6 行 × 7 列全同）。
 - 2026-10-18（队列 E 阶段1）：壳侧新增 `dialux.real.*` 五动作（`app_real.py` 经 `register()` 登记，self-check 动作 14 → 19）：子进程走 dc `scripts/real_action.py`（JSONL step/receipt 契约），非 Windows 与缺仓两道人话守卫，进度走 `set_step_sink` 侧信道（参数与回执 shape 不变）；本静态清单仍只列平台自登记的 10 个，外部注册详见上节。
+- 2026-10-30（P0，AWS 工具判据体检）：① `_read_json` / `_coerce` 报错带全动作＋参数＋填法，`FileNotFoundError` / 其余 `OSError` 转 `CommandError`，不再升级成 MCP `-32603`；② `Param` 新增 `enum` 字段，MCP schema 带出 `default` 与 `enum`（只进 schema，`spec()` 键集不变，对外形状零改动）；`plan.select_luminaire` / `report.assemble*` 三个已声明的默认值首次真发得出去；③ `json` 类型由 `object` 收成 `object/array/string`。分支 `fix/toolshed-param-and-schema`，审计全文见 `optiflow-app/注册表判据体检_AWS工具判据_v0.1.md`。
+- 2026-10-30（未改，记账）：`plan.select_luminaire` 10 个参数已过 AWS 的「八个」门槛（手写层 `optiflow_plan_lighting` 13 个），留待拆分；`report.assemble_from_pdf` 的 `criteria` / `criteria_path` 同义二选一列 P1。
