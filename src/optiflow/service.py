@@ -28,6 +28,7 @@ from .adapters.dialux import DialuxAdapter
 from .adapters.lumen import LumenPlannerAdapter
 from .ir import TaskSpec
 from .job import JobStatus
+from .job_store import JobStore
 from .orchestrator import Orchestrator, PipelineRun
 from .pipelines import DEFAULT_PIPELINES, get_pipeline
 from .plan_summary import units_check
@@ -136,7 +137,11 @@ class ServiceJob:
     error: Optional[str] = None
     cancel_requested: bool = False
     started_at: float = field(default_factory=time.monotonic)
+    #: 落盘用的挂钟时间。started_at 是 monotonic，只在本进程内有意义，
+    #: 两个混用会让“跑了 1200 秒”这种数字在重启后变得荒谬。
+    started_wall: float = field(default_factory=time.time)
     finished_at: Optional[float] = None
+    finished_wall: Optional[float] = None
 
     def steps_view(self) -> List[Dict[str, Any]]:
         """已落地的步骤（运行中就是“到目前为止跑完的”）。"""
@@ -166,12 +171,19 @@ class PlatformService:
     """把「目标 → 流水线 → 适配器」这套东西收进一个可被传输层调用的门面。"""
 
     def __init__(self, registry: AdapterRegistry, project: Optional[Project] = None,
-                 timeout: float = 120.0) -> None:
+                 timeout: float = 120.0,
+                 state_root: Optional[Path | str] = None) -> None:
         self.registry = registry
         self.project = project
         self.timeout = timeout
         self._jobs: Dict[str, ServiceJob] = {}
         self._lock = threading.Lock()
+        #: 落盘根。None ＝ 纯内存（测试与临时调用走这条），给了才落盘。
+        self.job_store: Optional[JobStore] = (
+            JobStore(Path(state_root)) if state_root is not None else None)
+        #: 启动时被认成中断的 job_id。不是清理，是认账。
+        self.interrupted_jobs: List[str] = (
+            self.job_store.reap_interrupted() if self.job_store is not None else [])
 
     # -------------------------------------------------- 静态能力
     def capabilities(self) -> List[Dict[str, Any]]:
@@ -352,6 +364,8 @@ class PlatformService:
             job.status = JobStatus.RUNNING
             job.stage = STAGE_RUNNING
             job.percent = PROGRESS_START
+            job.started_wall = job.started_wall or time.time()
+            self._persist(job)
             run = self._execute(job, task)
             job.run = run
             if run.cancelled:
@@ -382,6 +396,8 @@ class PlatformService:
             job.message = job.error
         finally:
             job.finished_at = time.monotonic()
+            job.finished_wall = time.time()
+            self._persist(job)
 
     def _execute(self, job: ServiceJob, task: TaskSpec) -> PipelineRun:
         orchestrator = Orchestrator(self.registry, project=self.project,
@@ -397,10 +413,12 @@ class PlatformService:
             else:
                 job.percent = _advance_percent(job.percent, done, total)
                 job.message = f"步骤 {name} 完成（{done}/{total}）"
+            self._persist(job)
 
         def on_run_update(run: PipelineRun) -> None:
             # 同一个对象引用：后续步骤追加后，job 里看到的就是最新的一份。
             job.live_run = run
+            self._persist(job)
 
         return orchestrator.run(
             get_pipeline(job.pipeline), task,
@@ -409,8 +427,21 @@ class PlatformService:
             on_run_update=on_run_update,
         )
 
+    def _persist(self, job: ServiceJob) -> None:
+        """旁路落盘。没开 state_root 时是空操作，写失败也不会带崩任务。"""
+        if self.job_store is not None:
+            self.job_store.save_job(job)
+
     def status(self, job_id: str) -> Dict[str, Any]:
-        return self._job(job_id).to_dict()
+        job = self._jobs.get(job_id)
+        if job is not None:
+            return job.to_dict()
+        # 重启后内存里没有，但盘上可能有上次运行的记录（status 会读到 interrupted）
+        if self.job_store is not None:
+            snap = self.job_store.snapshot(job_id)
+            if snap is not None:
+                return snap
+        raise KeyError(f"未知任务 {job_id}（内存与落盘记录里都没有）")
 
     def result(self, job_id: str) -> Dict[str, Any]:
         job = self._job(job_id)
@@ -429,6 +460,7 @@ class PlatformService:
         if job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
             job.status = JobStatus.CANCELLED
             job.message = "已请求取消（当前步骤结束后生效）"
+        self._persist(job)
         return job.to_dict()
 
     def artifact_path(self, job_id: str, key: str) -> Path:
@@ -484,6 +516,7 @@ def build_default_service(output_root: Optional[Path | str] = None,
     return PlatformService(
         build_default_registry(output_root),
         project=Project(id=project_id, name="光枢默认项目"),
+        state_root=output_root,
     )
 
 
