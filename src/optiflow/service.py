@@ -78,26 +78,82 @@ def run_to_dict(run: PipelineRun) -> Dict[str, Any]:
     }
 
 
+def step_brief(step_run) -> Dict[str, Any]:
+    """步骤摘要：字段名与 step_to_dict 一致，只去掉体积不可控的 raw。
+
+    为什么复用 step_to_dict 再删一个键、而不另写一份字段：两边字段名一旦漂开，
+    前端就得同时兼容两种 steps 形状（status 一种、result 一种），
+    那比多背一个 pop 贵得多。raw 是适配器原始返回，可能几百 KB，
+    塞进每秒好几次的 status() 响应里没有意义。
+    """
+    brief = step_to_dict(step_run)
+    brief.pop("raw", None)
+    return brief
+
+
+#: 进度条的取值策略。事件源是光枢自己的「步」事件，不是时间心跳——
+#: 卡住时不涨，才不会骗人。
+PROGRESS_START = 5.0        # 一开跑就离开 0：动了比停在原点诚实
+PROGRESS_CEILING = 95.0     # 运行中的天花板：算不准就不装准，走完才跳 100
+PROGRESS_SIP = 0.3          # 每次「步开始」的微增（档位抄自 Mrite 的 0.3）
+
+#: 任务所处的位置。运行中是「步骤名」，收尾是四个终态之一。
+#: 与 percent 正交：stage 回答「在哪」，percent 只回答「大概剩多少」。
+STAGE_QUEUED = "queued"
+STAGE_RUNNING = "running"
+STAGE_DONE = "done"
+STAGE_FAILED = "failed"
+STAGE_CANCELLED = "cancelled"
+STAGE_ERROR = "error"
+
+
+def _nudge_percent(percent: float) -> float:
+    """一次微增：让「动起来了」可见，但永不越过天花板，也永不回退。"""
+    base = max(float(percent), PROGRESS_START)
+    return round(min(PROGRESS_CEILING, base + PROGRESS_SIP), 1)
+
+
+def _advance_percent(percent: float, done: int, total: int) -> float:
+    """按已完成步数推进到对应的地板值；只升不降，且不越天花板。"""
+    if total <= 0:
+        return round(min(PROGRESS_CEILING, float(percent)), 1)
+    floor = PROGRESS_START + (PROGRESS_CEILING - PROGRESS_START) * done / total
+    return round(min(PROGRESS_CEILING, max(float(percent), floor)), 1)
+
+
 @dataclass
 class ServiceJob:
     job_id: str
     pipeline: str
     status: JobStatus = JobStatus.QUEUED
+    stage: str = STAGE_QUEUED
     percent: float = 0.0
     message: str = "已排队"
     run: Optional[PipelineRun] = None
+    #: 运行中的同一份 run（与 run 指向同一个对象）。单开一个字段是为了
+    #: 不改变 result() 的语义：没跑完不给结果，但跑的过程中要能看见步骤。
+    live_run: Optional[PipelineRun] = None
     error: Optional[str] = None
     cancel_requested: bool = False
     started_at: float = field(default_factory=time.monotonic)
     finished_at: Optional[float] = None
+
+    def steps_view(self) -> List[Dict[str, Any]]:
+        """已落地的步骤（运行中就是“到目前为止跑完的”）。"""
+        run = self.live_run if self.live_run is not None else self.run
+        if run is None:
+            return []
+        return [step_brief(s) for s in run.steps]
 
     def to_dict(self) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "job_id": self.job_id,
             "pipeline": self.pipeline,
             "status": self.status.value,
+            "stage": self.stage,
             "percent": round(self.percent, 1),
             "message": self.message,
+            "steps": self.steps_view(),
         }
         if self.error is not None:
             payload["error"] = self.error
@@ -294,25 +350,34 @@ class PlatformService:
                 job.finished_at = time.monotonic()
                 return
             job.status = JobStatus.RUNNING
+            job.stage = STAGE_RUNNING
+            job.percent = PROGRESS_START
             run = self._execute(job, task)
             job.run = run
             if run.cancelled:
                 job.status = JobStatus.CANCELLED
+                job.stage = STAGE_CANCELLED
                 job.message = f"已取消（停在步骤 {run.failed_at}）"
             elif run.ok:
                 job.status = JobStatus.DONE
+                job.stage = STAGE_DONE
                 job.percent = 100.0
                 job.message = "流水线完成，校验全部通过"
             elif run.completed:
                 job.status = JobStatus.DONE
+                job.stage = STAGE_DONE
                 job.percent = 100.0
                 job.message = f"流水线跑完但校验未全过（{len(run.failures)} 条不通过）"
             else:
                 job.status = JobStatus.FAILED
+                job.stage = STAGE_FAILED
+                # percent 故意不动：失败时停在当前位置，不归零也不跳 100。
+                # 回退到 0 会让人以为重跑了一次。
                 reason = f"：{run.failure_detail}" if run.failure_detail else ""
                 job.message = f"在步骤 {run.failed_at} 停下{reason}"
         except Exception as exc:  # noqa: BLE001 - 后台线程不能把异常吞进黑洞
             job.status = JobStatus.FAILED
+            job.stage = STAGE_ERROR
             job.error = f"{type(exc).__name__}: {exc}"
             job.message = job.error
         finally:
@@ -323,16 +388,25 @@ class PlatformService:
                                     timeout=self.timeout)
 
         def on_step(state: str, done: int, total: int, name: str) -> None:
+            # stage 与 percent 各走各的：stage 说「在哪一步」，percent 只做装饰。
+            # 把两者婚成一条公式的结果是：界面只能说“37%”，说不出“在布灯”。
+            job.stage = name
             if state == "start":
-                job.percent = (done / total) * 100.0 if total else 0.0
+                job.percent = _nudge_percent(job.percent)
                 job.message = f"正在跑步骤 {name}（{done + 1}/{total}）"
             else:
-                job.percent = (done / total) * 100.0 if total else 100.0
+                job.percent = _advance_percent(job.percent, done, total)
+                job.message = f"步骤 {name} 完成（{done}/{total}）"
+
+        def on_run_update(run: PipelineRun) -> None:
+            # 同一个对象引用：后续步骤追加后，job 里看到的就是最新的一份。
+            job.live_run = run
 
         return orchestrator.run(
             get_pipeline(job.pipeline), task,
             on_step=on_step,
             should_cancel=lambda: job.cancel_requested,
+            on_run_update=on_run_update,
         )
 
     def status(self, job_id: str) -> Dict[str, Any]:

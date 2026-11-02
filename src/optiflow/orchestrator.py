@@ -279,11 +279,15 @@ class Orchestrator:
     # -------------------------------------------------- 跑流水线
     def run(self, pipeline: Pipeline, task: TaskSpec,
             on_step: Optional[Callable[[str, int, int, str], None]] = None,
-            should_cancel: Optional[Callable[[], bool]] = None) -> PipelineRun:
+            should_cancel: Optional[Callable[[], bool]] = None,
+            on_run_update: Optional[Callable[["PipelineRun"], None]] = None) -> PipelineRun:
         """以 task 为原始任务跑完整条流水线。
 
         on_step(state, done, total, step_name)：进度回调，state 为 start/done；
         should_cancel()：在**每一步开始前**询问是否已取消。
+        on_run_update(run)：每完成一步就把 run 交出去一次。传的是同一个对象引用，
+            调用方拿着就能看到已完成的步骤，不必等整条流水线返回。
+            没有它，运行中的任务对调用方是不透明的——只能看到一个百分比。
 
         取消的粒度就是「步」——编排层能在步与步之间停下，但停不下正在跑的那一步
         （那要各适配器自己实现 cancel）。这一点写在 service 的 cancel 文档里，
@@ -327,6 +331,9 @@ class Orchestrator:
             if step.checks:
                 run.checks.extend(step_run.checks)
             run.steps.append(step_run)
+            if on_run_update is not None:
+                # 每步落地就立刻交出去：界面在 running 期间就能看到已完成步骤。
+                on_run_update(run)
 
             if self.project is not None and self.archive_steps and step_run.ok:
                 dispatcher.archive(job_id, note=f"{pipeline.goal} / {step.name}")
