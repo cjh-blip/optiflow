@@ -29,6 +29,7 @@ from .adapters.lumen import LumenPlannerAdapter
 from .ir import TaskSpec
 from .job import JobStatus
 from .job_store import JobStore
+from . import project_store
 from .orchestrator import Orchestrator, PipelineRun
 from .pipelines import DEFAULT_PIPELINES, get_pipeline
 from .plan_summary import units_check
@@ -179,8 +180,10 @@ class PlatformService:
         self._jobs: Dict[str, ServiceJob] = {}
         self._lock = threading.Lock()
         #: 落盘根。None ＝ 纯内存（测试与临时调用走这条），给了才落盘。
+        self.state_root: Optional[Path] = (
+            Path(state_root) if state_root is not None else None)
         self.job_store: Optional[JobStore] = (
-            JobStore(Path(state_root)) if state_root is not None else None)
+            JobStore(self.state_root) if self.state_root is not None else None)
         #: 启动时被认成中断的 job_id。不是清理，是认账。
         self.interrupted_jobs: List[str] = (
             self.job_store.reap_interrupted() if self.job_store is not None else [])
@@ -389,6 +392,11 @@ class PlatformService:
                 # 回退到 0 会让人以为重跑了一次。
                 reason = f"：{run.failure_detail}" if run.failure_detail else ""
                 job.message = f"在步骤 {run.failed_at} 停下{reason}"
+            # 项目持久化：把这次运行并进项目文件（失败也不影响任务状态）。
+            self._absorb_run(task, run)
+            # 状态一定就立刻落盘一次，不要只靠 finally：status() 读的是内存，
+            # 调用方看到 done 的那一刻盘上可能还是 running。
+            self._persist(job)
         except Exception as exc:  # noqa: BLE001 - 后台线程不能把异常吞进黑洞
             job.status = JobStatus.FAILED
             job.stage = STAGE_ERROR
@@ -432,6 +440,37 @@ class PlatformService:
         if self.job_store is not None:
             self.job_store.save_job(job)
 
+    def _absorb_run(self, task: TaskSpec, run: PipelineRun) -> Optional[Path]:
+        """把一次运行并进项目文件。
+
+        自动挂钩的边界说清楚：只做「把这次跑出来的东西记进项目」，
+        不做「从项目恢复任务」。反过来那条要等真实需求出现再做。
+
+        失败不抛：项目落盘是旁路，它坏了不该把已经跑完的任务改写成失败。
+        """
+        if self.state_root is None or self.project is None:
+            return None
+        try:
+            project = self.project
+            if all(t.model_dump() != task.model_dump() for t in project.inputs):
+                project.inputs.append(task)
+            artifacts: Dict[str, str] = {}
+            summary: Dict[str, float] = {}
+            for step in run.steps:
+                project.results.append(step.result)
+                artifacts.update(step.result.artifacts)
+                for metric in step.result.metrics:
+                    if metric.value is not None:
+                        summary[metric.name] = float(metric.value)
+            note = run.goal if run.completed else (
+                f"{run.goal}（未跑完：停在 {run.failed_at}）")
+            project.add_version(note=note, artifacts=artifacts,
+                                metrics_summary=summary)
+            return project_store.save(
+                project, project_store.project_path(self.state_root, project.id))
+        except Exception:  # noqa: BLE001 - 旁路失败不改写任务状态
+            return None
+
     def status(self, job_id: str) -> Dict[str, Any]:
         job = self._jobs.get(job_id)
         if job is not None:
@@ -444,7 +483,16 @@ class PlatformService:
         raise KeyError(f"未知任务 {job_id}（内存与落盘记录里都没有）")
 
     def result(self, job_id: str) -> Dict[str, Any]:
-        job = self._job(job_id)
+        job = self._jobs.get(job_id)
+        if job is None:
+            # 内存里没有：可能是重启前留下的任务。不要让它听起来像「任务不存在」，
+            # 那会把人往错方向查（以为是 job_id 打错或根本没提交过）。
+            snap = self.job_store.snapshot(job_id) if self.job_store is not None else None
+            if snap is not None:
+                raise RuntimeError(
+                    f"任务 {job_id} 是上一次运行的记录（状态 {snap['status']}）："
+                    f"结果对象没有落盘，重启后取不回来。重新提交一次才能拿到新结果。")
+            raise KeyError(f"未知任务 {job_id}（内存与落盘记录里都没有）")
         if job.status is JobStatus.FAILED:
             raise RuntimeError(f"任务 {job_id} 失败：{job.error or job.message}")
         if job.run is None:

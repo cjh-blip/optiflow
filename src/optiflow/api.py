@@ -253,7 +253,9 @@ def main(argv: Optional[list] = None) -> int:
                         help="允许绑定非回环地址（危险：无鉴权）")
     args = parser.parse_args(argv)
 
-    service = build_default_service()
+    from optiflow.home import resolve as _resolve_home
+
+    service = build_default_service(output_root=_resolve_home())
     server = create_server(service, host=args.host, port=args.port,
                            allow_remote=args.allow_remote)
     print(f"光枢 / OptiFlow 接口已启动：http://{args.host}:{args.port}")

@@ -139,7 +139,9 @@ def test_old_version_rejected_and_lists_options(tmp_path) -> None:
     err = excinfo.value
     assert err.code == "too_old"
     assert "没有自动升级" in err.hint
-    assert "三条出路" in err.hint
+    # 提示必须是诚实的：别让人以为存在一个文件迁移工具
+    assert "目前真能做的三条" in err.hint
+    assert "没有迁移工具" in err.hint
 
 
 def test_new_version_rejected(tmp_path) -> None:

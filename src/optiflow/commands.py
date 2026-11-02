@@ -79,11 +79,17 @@ _SERVICE: Optional[Any] = None
 
 
 def _service() -> Any:
+    """平台服务单例。
+
+    业务根在**首次调用时**读，不在 import 时读：import 的时机不受调用方控制，
+    产品壳是先设环境变量再调命令的；在 import 时读到空值，整套持久化就静默失效。
+    """
     global _SERVICE
     if _SERVICE is None:
+        from optiflow.home import resolve
         from optiflow.service import build_default_service
 
-        _SERVICE = build_default_service()
+        _SERVICE = build_default_service(output_root=resolve())
     return _SERVICE
 
 

@@ -406,7 +406,9 @@ def main(argv: Optional[list] = None) -> int:
                         help="打印工具清单后退出（不进入 stdio 循环）")
     args = parser.parse_args(argv)
     _load_shell_actions()          # 壳侧动作登记完，工具表才是完整的（G1）
-    service = build_default_service()
+    from optiflow.home import resolve as _resolve_home
+
+    service = build_default_service(output_root=_resolve_home())
     if args.self_check:
         for tool in _public_tools():
             print(f"{tool['name']}: {tool['description']}")
