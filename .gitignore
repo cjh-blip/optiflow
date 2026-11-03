@@ -15,3 +15,8 @@ dist/
 optiflow-subproc-home-*/
 pytest-of-*/
 optiflow-ezdxf-cache-*/
+
+# 本地跑测/提交信息临时件
+k*.log
+commit_msg_*.txt
+
