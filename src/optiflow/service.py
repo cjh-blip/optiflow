@@ -143,6 +143,10 @@ class ServiceJob:
     started_wall: float = field(default_factory=time.time)
     finished_at: Optional[float] = None
     finished_wall: Optional[float] = None
+    #: 终态是否已经落盘。内存里 status 变 done 的那一刻盘上可能还停在 running，
+    #: 调用方（测试、界面、脚本）看到 done 后立刻去读盘就会读到旧的。
+    #: status() 在终态但本标记为 False 时会同步补写一次，把这个窗口封掉。
+    final_persisted: bool = False
 
     def steps_view(self) -> List[Dict[str, Any]]:
         """已落地的步骤（运行中就是“到目前为止跑完的”）。"""
@@ -371,6 +375,9 @@ class PlatformService:
             self._persist(job)
             run = self._execute(job, task)
             job.run = run
+            # 先落项目、再宣布完成。顺序反了就是竞态：调用方看到 done 就去读盘，
+            # 而盘上可能还停在上一版（这是真问题，不只是测试会抖）。
+            self._absorb_run(task, run)
             if run.cancelled:
                 job.status = JobStatus.CANCELLED
                 job.stage = STAGE_CANCELLED
@@ -392,8 +399,7 @@ class PlatformService:
                 # 回退到 0 会让人以为重跑了一次。
                 reason = f"：{run.failure_detail}" if run.failure_detail else ""
                 job.message = f"在步骤 {run.failed_at} 停下{reason}"
-            # 项目持久化：把这次运行并进项目文件（失败也不影响任务状态）。
-            self._absorb_run(task, run)
+            # 项目已经落过盘（在上面的状态判断之前），这里不再重复。
             # 状态一定就立刻落盘一次，不要只靠 finally：status() 读的是内存，
             # 调用方看到 done 的那一刻盘上可能还是 running。
             self._persist(job)
@@ -406,6 +412,7 @@ class PlatformService:
             job.finished_at = time.monotonic()
             job.finished_wall = time.time()
             self._persist(job)
+            job.final_persisted = self.job_store is not None
 
     def _execute(self, job: ServiceJob, task: TaskSpec) -> PipelineRun:
         orchestrator = Orchestrator(self.registry, project=self.project,
@@ -491,6 +498,12 @@ class PlatformService:
     def status(self, job_id: str) -> Dict[str, Any]:
         job = self._jobs.get(job_id)
         if job is not None:
+            # 终态但还没落盘 → 现在补一次再返回。不补的话，调用方看到 done
+            # 去读盘会读到 running，这种不一致比慢几毫秒难受得多。
+            if (job.status not in (JobStatus.QUEUED, JobStatus.RUNNING)
+                    and not job.final_persisted and self.job_store is not None):
+                self._persist(job)
+                job.final_persisted = True
             return job.to_dict()
         # 重启后内存里没有，但盘上可能有上次运行的记录（status 会读到 interrupted）
         if self.job_store is not None:
