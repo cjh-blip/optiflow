@@ -55,6 +55,10 @@ MAX_UNIFORMITY_SEARCH_STEPS = 24
 #: 而把灯数从 31 加到 100 只挪到 0.52。房间角落暗是「边缘灯离墙太远」，不是「灯不够多」。
 EDGE_FACTOR_CANDIDATES = (0.5, 0.4, 0.3, 0.25)
 
+#: 轮廓把灯筛掉后，最多再补几轮。每次重排都要重算整个采样网格，不设上限会卡。
+#: 实测 1~2 轮就收敛（名义 20 → 25 → 实布 20），留 6 轮是给形状更碎的房间。
+MAX_SUPPLEMENT_ROUNDS = 6
+
 #: 直射占比低于这个值时提醒方案过度依赖墙面反射
 MIN_DIRECT_FRACTION = 0.5
 
@@ -89,6 +93,9 @@ class RoomPlan:
     fixtures: List[Fixture]
     warnings: List[str] = field(default_factory=list)
     relayout: Optional[Dict[str, Any]] = None
+    #: 轮廓筛掉灯后的补灯记录（None ＝ 一盏没被筛，不需要补）。
+    #: 字段：nominal_count / actual_before / rounds / actual_after / nominal_after
+    supplement: Optional[Dict[str, Any]] = None
 
     @property
     def uniformity_ok(self) -> bool:
@@ -270,6 +277,34 @@ def plan_layout(task: TaskSpec, *,
 
         layout, report, full, edge_factor = best_at(count)
 
+        # 外接矩形上排出的格子会被房间轮廓筛掉一部分（凹角/缺口），而照度是按
+        # **筛完的实布盏数**算的——不补回来，实际照度永远低于目标。
+        # 实测（97.66 m²、UF 0.6365、MF 0.80、Φ3000）：名义 20/26/32 盏，
+        # 实布只有 16/22/26 盏，照度 250.3/344.1/406.7，恒为目标值的 0.81~0.83。
+        nominal_count = count
+        supplement: Optional[Dict[str, Any]] = None
+        if layout.count < nominal_count:
+            actual_before = layout.count
+            rounds = 0
+            while layout.count < nominal_count and rounds < MAX_SUPPLEMENT_ROUNDS:
+                rounds += 1
+                before = layout.count
+                # 用「名义/实布」比例估下一轮名义值。加灯不涨实布就停：
+                # 说明这个轮廓已经排不下了，再试也是空转。
+                grow = nominal_count / max(before, 1)
+                candidate = max(count + 1, int(count * grow + 0.999))
+                layout, report, full, edge_factor = best_at(candidate)
+                count = candidate
+                if layout.count <= before:
+                    break
+            supplement = {
+                "nominal_count": nominal_count,
+                "actual_before": actual_before,
+                "rounds": rounds,
+                "actual_after": layout.count,
+                "nominal_after": count,
+            }
+
         room_warnings: List[str] = []
         violation = spacing_violation(layout)
         if violation:
@@ -327,15 +362,24 @@ def plan_layout(task: TaskSpec, *,
                 f"边缘灯更贴墙，注意与窗帘盒/墙面的安装冲突"
             )
 
-        # _evaluate_count 已把房间轮廓外的位置剔掉（凹角/缺口），这里只用它算出的位置，
-        # 并把「名义灯数 vs 实际灯数」的差额如实说出来。
+        # _evaluate_count 已把房间轮廓外的位置剔掉（凹角/缺口），这里只用它算出的位置。
         inside_positions = list(layout.positions)
-        dropped = max(0, int(count) - len(inside_positions))
-        if dropped:
-            room_warnings.append(
-                f"{dropped} 盏按外接网格排出的灯落在房间轮廓外（凹角/缺口），已剔除；"
-                f"实际布灯 {len(inside_positions)} 盏"
-            )
+        if supplement is not None:
+            if layout.count >= supplement["nominal_count"]:
+                room_warnings.append(
+                    f"房间轮廓筛掉了 {supplement['nominal_count'] - supplement['actual_before']} 盏，"
+                    f"已按比例加灯补回（名义 {supplement['nominal_count']}→"
+                    f"{supplement['nominal_after']} 盏，{supplement['rounds']} 轮，"
+                    f"实布 {supplement['actual_before']}→{layout.count} 盏）"
+                )
+            else:
+                room_warnings.append(
+                    f"该轮廓下补不足：名义要 {supplement['nominal_count']} 盏，补 "
+                    f"{supplement['rounds']} 轮后实布最多 {layout.count} 盏"
+                    f"（轮廓把 {supplement['nominal_count'] - supplement['actual_before']} 盏"
+                    f"筛在外面，加灯也补不回来）；照度仍低于目标，需要更窄配光的灯具"
+                    f"或改布灯方式"
+                )
         actual_count = len(inside_positions)
 
         predicted_initial = average_illuminance(actual_count, flux_per_fixture, uf, area, 1.0)
@@ -369,11 +413,13 @@ def plan_layout(task: TaskSpec, *,
         rooms.append(RoomPlan(
             space_id=space.id, area=area, room_index=k, utilization_factor=uf,
             maintenance_factor=maintenance, target_lux=target_lux, u0_required=u0_required,
-            lumen_method_count=count, layout=layout, uniformity=report, full_report=full,
+            # 这里报的是**流明法算出的原始名义值**，不是补灯后的名义值：
+            # 补灯出来的那些盏是为了抵消轮廓筛选，不改变「这个房间按面积本该多少盏」。
+            lumen_method_count=nominal_count, layout=layout, uniformity=report, full_report=full,
             edge_factor=edge_factor,
             predicted_avg_lumen=predicted_lumen, predicted_avg_initial=predicted_initial,
             flux_per_fixture=flux_per_fixture, fixtures=fixtures,
-            warnings=room_warnings, relayout=relayout,
+            warnings=room_warnings, relayout=relayout, supplement=supplement,
         ))
         all_warnings.extend(f"{space.id}: {w}" for w in room_warnings)
 
@@ -399,6 +445,9 @@ def plan_layout(task: TaskSpec, *,
             f"{r.space_id}={r.edge_factor:.2f}" for r in rooms
         ) + "（0.5 = 常规贴墙半格距）"
     )
+    # 调用方给的假设（比如「这间房没有层高信息，按 4.0 m 算」）必须原样带出去，
+    # 不能只藏在参数默认值里——那是用户看不见的地方。
+    assumptions.extend(str(a) for a in (task.extra.get("assumptions") or []))
     assumptions.append("点光源近似，不处理家具遮挡与二次反射的逐点分布")
 
     total_area = sum(r.area for r in rooms)

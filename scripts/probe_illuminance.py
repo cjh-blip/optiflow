@@ -58,7 +58,9 @@ def _task_from_dxf(dxf: Path, target_lux: float, flux: float,
             ))
     return TaskSpec(kind="layout", spaces=spaces,
                     constraints=[Metric(name="illuminance_avg", target=target_lux, unit="lx")],
-                    extra={"flux": flux, "fixture_name": "探针灯"})
+                    extra={"flux": flux, "fixture_name": "探针灯",
+                           "assumptions": ([] if ceil_h else [
+                               "未指定层高，按 IR 里的值计算（与产品壳同口径）"])})
 
 def probe(task: TaskSpec, target_lux: float, flux: float, verbose: bool = True) -> None:
     plan = plan_layout(task)
@@ -73,12 +75,18 @@ def probe(task: TaskSpec, target_lux: float, flux: float, verbose: bool = True) 
         print(f"  房间 {room.space_id}  area={room.area:.2f} m2  "
               f"room_index={room.room_index:.3f}  UF={room.utilization_factor:.4f}  "
               f"MF={room.maintenance_factor:.2f}")
-        print(f"  lumen_method_count={room.lumen_method_count}  "
-              f"layout.count={room.layout.count}  "
-              f"实际 export 盏数={n_actual}  落在轮廓内={inside}  "
-              f"被剔={n_actual - inside}")
+        print(f"  lumen_method_count={room.lumen_method_count}（名义）  "
+              f"layout.count={room.layout.count}（实布）  "
+              f"落在轮廓内={inside}  被剔={n_actual - inside}")
+        if room.supplement:
+            sup = room.supplement
+            print(f"  补灯: 实布 {sup['actual_before']} → {sup['actual_after']} 盏，"
+                  f"{sup['rounds']} 轮，名义 {sup['nominal_count']} → {sup['nominal_after']} 盏，"
+                  f"{'已补足' if sup['actual_after'] >= sup['nominal_count'] else '补不足'}")
         print(f"  照度: lumen={room.predicted_avg_lumen:.1f}  "
-              f"直射={room.full_report.e_avg:.1f}  U0={room.uniformity.u0:.3f}")
+              f"直射={room.full_report.e_avg:.1f}  U0={room.uniformity.u0:.3f}  "
+              f"目标={room.target_lux:.0f}  "
+              f"达标={room.predicted_avg_lumen >= room.target_lux - 1e-6}")
         implied = room.predicted_avg_lumen * room.area / (
             max(n_actual, 1) * room.flux_per_fixture)
         print(f"  反推 CU×MF = E×A/(N×Φ) = "
@@ -110,12 +118,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--targets", type=float, nargs="+", default=[300, 400, 500])
     #: 层高。产品壳 app.py 的 _task_from_ir 默认传 4.0，探针默认跟它对齐，
     #: 否则两处算出的房间指数不同、灯数差一盏，看起来像玄学。
-    ap.add_argument("--ceil-h", type=float, default=4.0)
+    ap.add_argument("--ceil-h", type=float, default=None,
+                    help="显式层高；不传就用 IR 里的值（与产品壳同口径）")
     ap.add_argument("--verbose", action="store_true", help="逐盏坐标全部打印")
     args = ap.parse_args(argv)
 
     dxf = Path(args.dxf)
-    print(f"图纸: {dxf}  flux={args.flux}  ceil_h={args.ceil_h}")
+    print(f"图纸: {dxf}  flux={args.flux}  ceil_h={args.ceil_h or '未指定（用 IR 的）'}")
     for target in args.targets:
         task = _task_from_dxf(dxf, target, args.flux, args.ceil_h)
         probe(task, target, args.flux, verbose=args.verbose)

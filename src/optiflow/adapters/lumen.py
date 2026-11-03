@@ -105,6 +105,8 @@ class LumenPlannerAdapter:
                 "rooms": [{
                     "space_id": r.space_id,
                     "count": r.layout.count,
+                    "lumen_method_count": r.lumen_method_count,
+                    "supplement": r.supplement,
                     "edge_factor": r.edge_factor,
                     "room_index": r.room_index,
                     "utilization_factor": r.utilization_factor,
