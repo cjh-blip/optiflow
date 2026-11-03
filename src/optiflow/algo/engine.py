@@ -55,9 +55,19 @@ MAX_UNIFORMITY_SEARCH_STEPS = 24
 #: 而把灯数从 31 加到 100 只挪到 0.52。房间角落暗是「边缘灯离墙太远」，不是「灯不够多」。
 EDGE_FACTOR_CANDIDATES = (0.5, 0.4, 0.3, 0.25)
 
-#: 轮廓把灯筛掉后，最多再补几轮。每次重排都要重算整个采样网格，不设上限会卡。
-#: 实测 1~2 轮就收敛（名义 20 → 25 → 实布 20），留 6 轮是给形状更碎的房间。
-MAX_SUPPLEMENT_ROUNDS = 6
+#: 轮廓把灯筛掉后最多再试几档（补 2 档 + 回退 1 档）。
+#: 网格行列会跳变（名义 22 可能只排下 18 盏），所以逐档下探找最小可行档。
+#: 上限不敢再大：每次重排都要重算整个采样网格，房间多时就是用户等在那儿的时间——
+#: 实测有的轮廓连降 3 档都排不出中间值，再试也是空转。
+MAX_SUPPLEMENT_ROUNDS = 3
+
+#: 被剔比例不超过这个数就不补。规整房间本来就一盏不剔，
+#: 稍微剔几盏就补会让网格行列跳变、超调反而更大（也白花评估时间）。
+SUPPLEMENT_DROP_THRESHOLD = 0.10
+
+#: 补完实布超过名义的这个倍数就是超调（多配的灯在报告里就是 LPD 变差），
+#: 回退一档再判，回退后仍达标就用回退的那一档。
+SUPPLEMENT_OVERSHOOT = 1.10
 
 #: 直射占比低于这个值时提醒方案过度依赖墙面反射
 MIN_DIRECT_FRACTION = 0.5
@@ -93,9 +103,12 @@ class RoomPlan:
     fixtures: List[Fixture]
     warnings: List[str] = field(default_factory=list)
     relayout: Optional[Dict[str, Any]] = None
-    #: 轮廓筛掉灯后的补灯记录（None ＝ 一盏没被筛，不需要补）。
-    #: 字段：nominal_count / actual_before / rounds / actual_after / nominal_after
+    #: 轮廓筛掉灯后的补灯记录（None ＝ 不需要补）。
+    #: 字段：nominal_count / actual_before / dropped_ratio / rounds / actual_after / nominal_after
     supplement: Optional[Dict[str, Any]] = None
+    #: 不达标项的结构化输出。每项：metric / label / actual / target / unit /
+    #: gap / gap_pct / cause / action——界面拿去直接显示，不用再解析 warning 文本。
+    shortfalls: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def uniformity_ok(self) -> bool:
@@ -283,23 +296,38 @@ def plan_layout(task: TaskSpec, *,
         # 实布只有 16/22/26 盏，照度 250.3/344.1/406.7，恒为目标值的 0.81~0.83。
         nominal_count = count
         supplement: Optional[Dict[str, Any]] = None
-        if layout.count < nominal_count:
+        dropped_ratio = 1.0 - (layout.count / nominal_count if nominal_count else 1.0)
+        if layout.count < nominal_count and dropped_ratio > SUPPLEMENT_DROP_THRESHOLD:
             actual_before = layout.count
             rounds = 0
-            while layout.count < nominal_count and rounds < MAX_SUPPLEMENT_ROUNDS:
+            # 按「名义/实布」等比补。一次到位估不准：网格行列会跳变，
+            # 名义 26 补到 31 反而只排下 25 盏，所以允许再来一轮，最多 2 轮。
+            while rounds < 2 and layout.count < nominal_count:
                 rounds += 1
-                before = layout.count
-                # 用「名义/实布」比例估下一轮名义值。加灯不涨实布就停：
-                # 说明这个轮廓已经排不下了，再试也是空转。
-                grow = nominal_count / max(before, 1)
+                grow = nominal_count / max(layout.count, 1)
                 candidate = max(count + 1, int(count * grow + 0.999))
                 layout, report, full, edge_factor = best_at(candidate)
                 count = candidate
-                if layout.count <= before:
+            # 超调：补过头就是多配灯，报告里会变成 LPD 变差。这里按**照度**判，
+            # 不按盏数——名义本身是向上取整的，用盏数卡边界会一直误判。
+            guard = 0
+            while (layout.count > nominal_count and guard < MAX_SUPPLEMENT_ROUNDS
+                   and average_illuminance(layout.count, flux_per_fixture, uf, area,
+                                           maintenance) > target_lux * SUPPLEMENT_OVERSHOOT):
+                guard += 1
+                rounds += 1
+                back = count - 1                 # 逐档下探，不二分（二分容易一下跳过可行档）
+                if back < nominal_count:
                     break
+                lay2, rep2, full2, ef2 = best_at(back)
+                if lay2.count < nominal_count:
+                    break                     # 降档后不达标了，保留上一档
+                layout, report, full, edge_factor = lay2, rep2, full2, ef2
+                count = back
             supplement = {
                 "nominal_count": nominal_count,
                 "actual_before": actual_before,
+                "dropped_ratio": round(dropped_ratio, 4),
                 "rounds": rounds,
                 "actual_after": layout.count,
                 "nominal_after": count,
@@ -400,6 +428,43 @@ def plan_layout(task: TaskSpec, *,
                     f"墙面吸光或家具遮挡时实际会更暗，务必用 DIALux 校核"
                 )
 
+        # 不达标要给人话，不只给一句 warning：界面要能直接摆出
+        # 「哪项、实测多少、目标多少、差多少、为什么、怎么办」。
+        shortfalls: List[Dict[str, Any]] = []
+        if predicted_lumen < target_lux - 1e-6:
+            short_pct = (target_lux - predicted_lumen) / target_lux * 100.0
+            if supplement is not None and layout.count < supplement["nominal_count"]:
+                cause = (
+                    f"房间轮廓是凹形/带缺口，外接网格上有 "
+                    f"{supplement['nominal_count'] - supplement['actual_before']} 盏落在轮廓外；"
+                    f"按比例补灯 {supplement['rounds']} 轮后实布最多 {layout.count} 盏，"
+                    f"补不上去了")
+                action = "换光通量更大的灯具，或改布灯方式（沿轮廓带状布置）"
+            else:
+                cause = (
+                    "按当前单灯光通量与利用系数，这个面积的房间里排不下足够多的灯"
+                    f"（已布 {actual_count} 盏，仍需更多）")
+                action = "换光通量更大的灯具，或增加安装点位"
+            shortfalls.append({
+                "metric": "illuminance_avg", "label": "平均照度",
+                "actual": round(predicted_lumen, 1), "target": round(target_lux, 1),
+                "unit": "lx", "gap": round(predicted_lumen - target_lux, 1),
+                "gap_pct": round(short_pct, 1),
+                "cause": cause, "action": action,
+            })
+        if report.u0 < u0_required - 1e-9:
+            shortfalls.append({
+                "metric": "uniformity_u0", "label": "均匀度 U0",
+                "actual": round(report.u0, 3), "target": round(u0_required, 2),
+                "unit": "", "gap": round(report.u0 - u0_required, 3),
+                "gap_pct": round((u0_required - report.u0) / u0_required * 100.0, 1),
+                "cause": (
+                    f"边缘间距已收到 {edge_factor:.2f} 个格距（常规 0.5），灯数已加到 {count} 盏，"
+                    "U0 仍上不去；继续收边会贴墙，继续加灯也不会更均匀——"
+                    "这是灯具配光角度不够宽，不是灯不够多"),
+                "action": "换半峰角更大的灯具（更宽配光），或改用更密的小功率灯具分点布置",
+            })
+
         fixtures = [
             Fixture(
                 id=f"{space.id}-L{i + 1}",
@@ -420,6 +485,7 @@ def plan_layout(task: TaskSpec, *,
             predicted_avg_lumen=predicted_lumen, predicted_avg_initial=predicted_initial,
             flux_per_fixture=flux_per_fixture, fixtures=fixtures,
             warnings=room_warnings, relayout=relayout, supplement=supplement,
+            shortfalls=shortfalls,
         ))
         all_warnings.extend(f"{space.id}: {w}" for w in room_warnings)
 

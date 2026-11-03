@@ -107,6 +107,7 @@ class LumenPlannerAdapter:
                     "count": r.layout.count,
                     "lumen_method_count": r.lumen_method_count,
                     "supplement": r.supplement,
+                    "shortfalls": r.shortfalls,
                     "edge_factor": r.edge_factor,
                     "room_index": r.room_index,
                     "utilization_factor": r.utilization_factor,

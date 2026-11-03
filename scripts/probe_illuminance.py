@@ -97,6 +97,12 @@ def probe(task: TaskSpec, target_lux: float, flux: float, verbose: bool = True) 
             print(f"  重排: base_count={room.relayout['base_count']} → "
                   f"count={room.relayout['count']}  U0 {room.relayout['base_u0']:.3f}→"
                   f"{room.relayout['u0']:.3f}")
+        if room.shortfalls:
+            for s in room.shortfalls:
+                print(f"  ✗ {s['label']}：实测 {s['actual']}{s['unit']} / 目标 {s['target']}{s['unit']}"
+                      f"（差 {s['gap_pct']}%）")
+                print(f"    原因：{s['cause']}")
+                print(f"    建议：{s['action']}")
         if room.warnings:
             for w in room.warnings:
                 print(f"  ! {w}")
