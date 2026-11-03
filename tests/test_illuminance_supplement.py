@@ -120,7 +120,12 @@ def test_shortfall_reports_metric_actual_target_cause_action():
                     "gap", "gap_pct", "cause", "action"):
             assert key in item, f"缺字段 {key}：{item}"
         assert item["cause"] and item["action"], "原因与建议动作不能空着"
-        assert item["gap"] < 0, "不达标项的实际值应该小于目标值"
+        # shortfalls 里两个方向共存：照度/U0 是「不够」（gap<0），
+        # LPD 是「超了」（direction=over，gap>0）。
+        if item.get("direction") == "over":
+            assert item["gap"] > 0, "超标项的实际值应该大于目标值"
+        else:
+            assert item["gap"] < 0, "不足项的实际值应该小于目标值"
 
 
 def test_uniformity_shortfall_says_it_is_not_a_lamp_count_problem():

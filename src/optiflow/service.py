@@ -411,8 +411,7 @@ class PlatformService:
         finally:
             job.finished_at = time.monotonic()
             job.finished_wall = time.time()
-            self._persist(job)
-            job.final_persisted = self.job_store is not None
+            job.final_persisted = self._persist(job)
 
     def _execute(self, job: ServiceJob, task: TaskSpec) -> PipelineRun:
         orchestrator = Orchestrator(self.registry, project=self.project,
@@ -442,10 +441,19 @@ class PlatformService:
             on_run_update=on_run_update,
         )
 
-    def _persist(self, job: ServiceJob) -> None:
-        """旁路落盘。没开 state_root 时是空操作，写失败也不会带崩任务。"""
-        if self.job_store is not None:
-            self.job_store.save_job(job)
+    def _persist(self, job: ServiceJob) -> bool:
+        """旁路落盘。没开 state_root 时是空操作。
+
+        返回**是否真的写成了**。调用方靠这个返回值决定 final_persisted：
+        早先不管成败都置 True，结果写失败一次之后 status() 再也不补写，
+        盘上就永远停在 running。
+        """
+        if self.job_store is None:
+            return False
+        try:
+            return self.job_store.save_job(job) is not None
+        except Exception:  # noqa: BLE001 - 落盘失败不该带崩任务
+            return False
 
     def load_project(self, project_id: str) -> Project:
         """从磁盘读回项目。内存里就是它的话直接给同一个对象。
@@ -502,8 +510,7 @@ class PlatformService:
             # 去读盘会读到 running，这种不一致比慢几毫秒难受得多。
             if (job.status not in (JobStatus.QUEUED, JobStatus.RUNNING)
                     and not job.final_persisted and self.job_store is not None):
-                self._persist(job)
-                job.final_persisted = True
+                job.final_persisted = self._persist(job)
             return job.to_dict()
         # 重启后内存里没有，但盘上可能有上次运行的记录（status 会读到 interrupted）
         if self.job_store is not None:

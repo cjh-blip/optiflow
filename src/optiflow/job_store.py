@@ -31,15 +31,27 @@ IN_FLIGHT = ("queued", "running")
 TERMINAL = ("done", "failed", "cancelled", "error", INTERRUPTED)
 
 
-def _atomic_write(path: Path, text: str) -> None:
+def _atomic_write(path: Path, text: str, *, retries: int = 5) -> None:
+    """先写 .tmp 再 os.replace。
+
+    Windows 上 os.replace 会与并发的读撞锁（PermissionError / WinError 32），
+    一次失败就放弃会让「内存已 done、盘上还是 running」这种不一致偶发出现。
+    重试几次（总预算 ~300ms）就能盖住测试与界面轮询带来的短时占用。
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    try:
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, path)
-    except OSError:
-        tmp.unlink(missing_ok=True)
-        raise
+    last: OSError | None = None
+    for attempt in range(retries):
+        try:
+            tmp.write_text(text, encoding="utf-8")
+            os.replace(tmp, path)
+            return
+        except OSError as exc:
+            last = exc
+            time.sleep(0.02 * (attempt + 1))
+    tmp.unlink(missing_ok=True)
+    assert last is not None
+    raise last
 
 
 class JobStore:
