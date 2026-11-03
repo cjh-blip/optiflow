@@ -19,9 +19,16 @@ class AdapterNotFound(Exception):
 
 
 class Dispatcher:
-    def __init__(self, registry: AdapterRegistry, project: Project | None = None) -> None:
+    def __init__(self, registry: AdapterRegistry, project: Project | None = None,
+                 *, record_inputs: bool = True) -> None:
+        """``record_inputs=False`` 用于编排层：它每步都会新建一个 Dispatcher，
+
+        若每步都把步级 TaskSpec 追加进 project.inputs，那次流水线就会往
+        「原始输入」里塞进几条派生任务，项目文件从此分不清哪个该拿来重算。
+        """
         self.registry = registry
         self.project = project
+        self.record_inputs = record_inputs
         self._jobs: dict[str, Adapter] = {}
 
     def dispatch(self, task: TaskSpec) -> str:
@@ -29,7 +36,7 @@ class Dispatcher:
         if adapter is None:
             known = sorted({k for a in self.registry.all() for k in a.capabilities().kinds})
             raise AdapterNotFound(f"没有适配器支持 kind={task.kind!r}；当前能力: {known}")
-        if self.project is not None:
+        if self.project is not None and self.record_inputs:
             self.project.inputs.append(task)
         job_id = adapter.submit(task)
         self._jobs[job_id] = adapter

@@ -440,11 +440,39 @@ class PlatformService:
         if self.job_store is not None:
             self.job_store.save_job(job)
 
-    def _absorb_run(self, task: TaskSpec, run: PipelineRun) -> Optional[Path]:
-        """把一次运行并进项目文件。
+    def load_project(self, project_id: str) -> Project:
+        """从磁盘读回项目。内存里就是它的话直接给同一个对象。
 
-        自动挂钩的边界说清楚：只做「把这次跑出来的东西记进项目」，
-        不做「从项目恢复任务」。反过来那条要等真实需求出现再做。
+        读回来的 Project 带完整 inputs / artifacts / results / versions，
+        可以继续拿来跑，也可以只用来查看。
+        """
+        if self.state_root is None:
+            raise RuntimeError("没有业务根：项目文件无处可读（需要 state_root）")
+        if self.project is not None and self.project.id == project_id:
+            return self.project
+        return project_store.load(
+            project_store.project_path(self.state_root, project_id))
+
+    def resume_project(self, pipeline_name: str = "lighting_plan", *,
+                       project_id: Optional[str] = None) -> str:
+        """拿项目里最后一条原始输入再跑一遍，跑完是**追加**一个版本。
+
+        只认 ``inputs``：那是原始 TaskSpec，本来就该从头重算。
+        results / versions 是派生，不能拿来当输入，否则重算的结果会被旧结果污染。
+        """
+        project = self.load_project(project_id or (self.project.id if self.project else ""))
+        if not project.inputs:
+            raise ValueError(
+                f"项目 {project.id} 里没有原始输入，无法重算：先跑一次把 inputs 存下来")
+        self.project = project          # 后续 _absorb_run 追加到这个项目上
+        return self.submit(pipeline_name, project.inputs[-1])
+
+    def _absorb_run(self, task: TaskSpec, run: PipelineRun) -> Optional[Path]:
+        """把一次运行落进项目文件。
+
+        分工：**版本与 results 由 Orchestrator 归档**（它每成功一步就 archive 一次，
+        受 ``archive_steps`` 控制）；这里只补原始输入并写盘。
+        早先这里又 add_version 一遍，结果一次两步流水线凭空多出一个版本。
 
         失败不抛：项目落盘是旁路，它坏了不该把已经跑完的任务改写成失败。
         """
@@ -452,20 +480,9 @@ class PlatformService:
             return None
         try:
             project = self.project
+            # inputs 是原始输入，只进不回：重算靠它，results/versions 不能当输入。
             if all(t.model_dump() != task.model_dump() for t in project.inputs):
                 project.inputs.append(task)
-            artifacts: Dict[str, str] = {}
-            summary: Dict[str, float] = {}
-            for step in run.steps:
-                project.results.append(step.result)
-                artifacts.update(step.result.artifacts)
-                for metric in step.result.metrics:
-                    if metric.value is not None:
-                        summary[metric.name] = float(metric.value)
-            note = run.goal if run.completed else (
-                f"{run.goal}（未跑完：停在 {run.failed_at}）")
-            project.add_version(note=note, artifacts=artifacts,
-                                metrics_summary=summary)
             return project_store.save(
                 project, project_store.project_path(self.state_root, project.id))
         except Exception:  # noqa: BLE001 - 旁路失败不改写任务状态
@@ -559,11 +576,27 @@ def build_default_registry(output_root: Optional[Path | str] = None) -> AdapterR
     return registry
 
 
+def _open_or_create(state_root: Optional[Path | str], project_id: str,
+                    name: str = "光枢默认项目") -> Project:
+    """有项目文件就读回来，没有才新建一个空项目。
+
+    不能无脑 ``Project(...)``：那会让每次重启后的第一次运行把磁盘上的
+    版本历史整个覆盖掉——文件还是那个文件，旧版本却没声了，这比报错难查。
+    文件坏了（schema_version 不符 / JSON 不合法）就让它抛：报错总比默默覆盖好。
+    """
+    if state_root is None:
+        return Project(id=project_id, name=name)
+    path = project_store.project_path(state_root, project_id)
+    if path.exists():
+        return project_store.load(path)
+    return Project(id=project_id, name=name)
+
+
 def build_default_service(output_root: Optional[Path | str] = None,
                           project_id: str = "default") -> PlatformService:
     return PlatformService(
         build_default_registry(output_root),
-        project=Project(id=project_id, name="光枢默认项目"),
+        project=_open_or_create(output_root, project_id),
         state_root=output_root,
     )
 

@@ -306,7 +306,8 @@ class Orchestrator:
             if on_step is not None:
                 on_step("start", index, total, step.name)
             adapter = self.resolve(step)
-            dispatcher = Dispatcher(_single(adapter), project=self.project)
+            dispatcher = Dispatcher(_single(adapter), project=self.project,
+                                    record_inputs=False)
             step_task = step.build(ctx)
             job_id = dispatcher.dispatch(step_task)
             try:
