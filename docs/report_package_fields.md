@@ -54,7 +54,9 @@
 
 | 字段 | 含义 | 性质 |
 |---|---|---|
-| `compulsory_ok` | **只看 LPD 现行值**。GB 55015 是强制性规范，这层不过就是真不合规 | bool \| null（null = 没标准） |
+| `compulsory_ok` | **三态** `pass` / `fail` / `unevaluated`。判定集合＝全部强制性要求：LPD 现行值（GB 55015-2021 建筑节能通用规范 表 3.3.7 系列）＋ Ra 与 SVM（GB 55016-2021 建筑环境通用规范）。**只要有未计算项且没有 fail，整格就是 unevaluated** | str |
+| `compulsory_detail` | `{lpd_current, ra, svm}` 各自 true / false / null（null = 未计算，不是「没超」） | object |
+| `compulsory_missing` | 未计算的强制项名单，如 `["ra","svm"]` | array |
 | `standard_pass` | 照度 / U₀ / LPD 按 GB/T 50034 标准值逐项判，**已计算项全过才 true** | bool \| null（null = 无类型可依） |
 | `target_met` | LPD 目标值这类更严的推荐线 | bool \| null |
 | `evaluated` | `{指标名: bool}`，实际参与了 `standard_pass` 的项 | object |
@@ -141,7 +143,12 @@
 | `status` | `done` / `failed`。**失败也照样出包**——它更该把缺口带出来 |
 | `message` | 失败原因原话 |
 | `elapsed_s` | 平台记录的耗时 |
+| `plan_source` | plan 对象从哪来。真运行时恒为 `platform.step.raw['_plan']`——**同一个对象，不是本地重算** |
 | `cross_check` | 产物对账：`{plan_json, plan_json_fixture_count, fixture_count_in_package, fixture_count_matched}`；对不上就是 false，不遮掩 |
+
+**plan 对象来源**：`lumen` 适配器把 `LayoutPlan` 原对象放进 `step.result.raw["_plan"]`，
+`PlatformService.plan_of(job_id)` 取回，报告包直接吃这个对象。**取不到就报错，不静默回落成本地重算。**
+下划线开头的 raw 键不进 JSON（`step_to_dict` 会滤掉），所以 API 返回体里看不到它们。
 
 注意：平台的 `plan` 步带 `uniformity_u0>=目标` 校验，U₀ 不达标的房间会**整步失败**。
 这不是缺陷，是编排层如实拦下。报告包在这种情况下仍然产出，`status=failed`、
@@ -152,7 +159,7 @@
 | 字段 | 说明 |
 |---|---|
 | `room_count` / `fixture_count` / `area_m2` / `total_power_w` | 汇总 |
-| `rooms_compulsory_ok` | 强制项（LPD 现行值）通过的房间数 |
+| `rooms_compulsory_pass` / `rooms_compulsory_fail` / `rooms_compulsory_unevaluated` | 强制项三态各自计数 |
 | `rooms_standard_pass` | 已计算项全过的房间数 |
 | `rooms_target_met` | LPD 达到目标值的房间数 |
 | `rooms_unevaluated` | `{指标名: 未计算它的房间数}`，只列真的出现的项 |

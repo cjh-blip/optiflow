@@ -67,6 +67,10 @@ _LPD_CUR_OFFICE = "GB 55015-2021 表 3.3.7-3"
 _LPD_CUR_GENERIC = "GB 55015-2021 表 3.3.7-12"
 _LPD_TGT_OFFICE = "GB/T 50034-2024 表 6.3.5"
 _LPD_TGT_GENERIC = "GB/T 50034-2024 表 6.3.15"
+#: Ra 有双重身份：GB/T 50034 给推荐值，GB 55016《建筑环境通用规范》是**强制**要求。
+#: 两本都写进去，报告里才知道这一格不是可选项。
+_RA_OFFICE = "GB/T 50034-2024 表 5.3.2；GB 55016-2021（建筑环境通用规范，显色指数为强制要求）"
+_RA_GENERIC = "GB/T 50034-2024 表 5.5.1；GB 55016-2021（建筑环境通用规范，显色指数为强制要求）"
 
 ROOM_STANDARDS: Dict[str, RoomStandard] = {
     "office": RoomStandard(
@@ -75,7 +79,7 @@ ROOM_STANDARDS: Dict[str, RoomStandard] = {
         lpd_current=8.0, lpd_target=6.5,
         sources={
             "illuminance": _OFFICE_STD, "ugr": _OFFICE_STD, "u0": _OFFICE_STD,
-            "ra": _OFFICE_STD, "lpd_current": _LPD_CUR_OFFICE,
+            "ra": _RA_OFFICE, "lpd_current": _LPD_CUR_OFFICE,
             "lpd_target": _LPD_TGT_OFFICE,
         },
     ),
@@ -85,7 +89,7 @@ ROOM_STANDARDS: Dict[str, RoomStandard] = {
         lpd_current=13.5, lpd_target=9.5,
         sources={
             "illuminance": _OFFICE_STD, "ugr": _OFFICE_STD, "u0": _OFFICE_STD,
-            "ra": _OFFICE_STD, "lpd_current": _LPD_CUR_OFFICE,
+            "ra": _RA_OFFICE, "lpd_current": _LPD_CUR_OFFICE,
             "lpd_target": _LPD_TGT_OFFICE,
         },
     ),
@@ -95,7 +99,7 @@ ROOM_STANDARDS: Dict[str, RoomStandard] = {
         lpd_current=8.0, lpd_target=6.5,
         sources={
             "illuminance": _OFFICE_STD, "ugr": _OFFICE_STD, "u0": _OFFICE_STD,
-            "ra": _OFFICE_STD, "lpd_current": _LPD_CUR_OFFICE,
+            "ra": _RA_OFFICE, "lpd_current": _LPD_CUR_OFFICE,
             "lpd_target": _LPD_TGT_OFFICE,
         },
     ),
@@ -105,7 +109,7 @@ ROOM_STANDARDS: Dict[str, RoomStandard] = {
         lpd_current=2.0, lpd_target=1.5,
         sources={
             "illuminance": _GENERIC_STD, "ugr": _GENERIC_STD, "u0": _GENERIC_STD,
-            "ra": _GENERIC_STD, "lpd_current": _LPD_CUR_GENERIC,
+            "ra": _RA_GENERIC, "lpd_current": _LPD_CUR_GENERIC,
             "lpd_target": _LPD_TGT_GENERIC,
         },
     ),
@@ -115,7 +119,7 @@ ROOM_STANDARDS: Dict[str, RoomStandard] = {
         lpd_current=10.0, lpd_target=8.0,
         sources={
             "illuminance": _OFFICE_STD, "ugr": _OFFICE_STD, "u0": _OFFICE_STD,
-            "ra": _OFFICE_STD, "lpd_current": _LPD_CUR_OFFICE,
+            "ra": _RA_OFFICE, "lpd_current": _LPD_CUR_OFFICE,
             "lpd_target": _LPD_TGT_OFFICE,
         },
     ),

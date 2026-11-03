@@ -60,7 +60,10 @@ def step_to_dict(step_run) -> Dict[str, Any]:
         "job_id": step_run.job_id,
         "metrics": [m.model_dump() for m in step_run.result.metrics],
         "artifacts": dict(step_run.result.artifacts),
-        "raw": dict(step_run.result.raw),
+        # 下划线开头的键是内部对象（如 LayoutPlan），不进 JSON；
+        # 要拿它们走 PlatformService.plan_of()，别从 dict 里扇。
+        "raw": {k: v for k, v in dict(step_run.result.raw).items()
+                if not str(k).startswith("_")},
         "checks": [check_to_dict(c) for c in step_run.checks],
     }
 
@@ -547,6 +550,24 @@ class PlatformService:
             job.message = "已请求取消（当前步骤结束后生效）"
         self._persist(job)
         return job.to_dict()
+
+    def plan_of(self, job_id: str) -> Any:
+        """取回某任务那一步算出的 plan **对象本身**，不是重新算一遍。
+
+        报告包必须靠这个拿数：本地重算只能证明「同一个 task 能算出同一个结果」，
+        不能证明「报告里的数就来自这次运行」。拿不到就报错，不静默回落。
+        """
+        job = self._jobs.get(job_id)
+        if job is None or job.run is None:
+            raise RuntimeError(
+                f"任务 {job_id} 没有可取的 plan（内存里没有，或还没跑到产出那一步）")
+        for step in job.run.steps:
+            plan = dict(step.result.raw or {}).get("_plan")
+            if plan is not None:
+                return plan
+        raise RuntimeError(
+            f"任务 {job_id} 的各步都没有交出 plan 对象"
+            f"（适配器需在 result.raw['_plan'] 里放回原对象）")
 
     def artifact_path(self, job_id: str, key: str) -> Path:
         """取某个任务产物的真实路径。

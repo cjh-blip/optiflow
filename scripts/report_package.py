@@ -31,7 +31,7 @@ def _task(dxf: Path, repo: Path, *, target: float, flux: float,
     return _task_from_dxf(dxf, target, flux, ceil_h, room_type, multi_room=multi)
 
 
-def _run_on_platform(task: TaskSpec, out_dir: Path, tag: str) -> Dict[str, Any]:
+def _run_on_platform(task: TaskSpec, out_dir: Path, tag: str):
     """走一次真平台运行，把 job_id / steps / 产物对账都拿回来。
 
     **包的默认出口是真运行，不是脚本直调。** 直调那条只给 CLI 快速调试用。
@@ -83,13 +83,17 @@ def _run_on_platform(task: TaskSpec, out_dir: Path, tag: str) -> Dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - 对账拿不到就如实说拿不到
         cross["error"] = f"{type(exc).__name__}: {exc}"
 
-    return {
+    # plan 从平台取回，**不本地重算**。取不到就炸，不静默回落。
+    plan = svc.plan_of(job_id)
+
+    return plan, {
         "job_id": job_id,
         "steps": steps,
         "source": "platform",
         "status": st["status"],
         "message": st.get("message"),
         "elapsed_s": st.get("elapsed"),
+        "plan_source": "platform.step.raw['_plan']",
         "cross_check": cross,
     }
 
@@ -173,8 +177,8 @@ def main() -> int:
                                     pipeline={"job_id": None, "steps": [],
                                               "source": "cli"})
     else:
-        pkg1 = build_report_package(plan_layout(t1), t1,
-                                    pipeline=_run_on_platform(t1, out_dir, "run_single"))
+        plan1, pipe1 = _run_on_platform(t1, out_dir, "run_single")
+        pkg1 = build_report_package(plan1, t1, pipeline=pipe1)
     _cross_check(pkg1)
     _dump("单房间_会议室300", pkg1, out_dir)
 
@@ -186,8 +190,8 @@ def main() -> int:
                                     pipeline={"job_id": None, "steps": [],
                                               "source": "cli"})
     else:
-        pkg2 = build_report_package(plan_layout(t2), t2,
-                                    pipeline=_run_on_platform(t2, out_dir, "run_multi"))
+        plan2, pipe2 = _run_on_platform(t2, out_dir, "run_multi")
+        pkg2 = build_report_package(plan2, t2, pipeline=pipe2)
     _cross_check(pkg2)
     _dump("多房间_会议室300_走廊50", pkg2, out_dir)
 

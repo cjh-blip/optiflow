@@ -144,6 +144,9 @@ class LumenPlannerAdapter:
                     "assumptions": plan.assumptions,
                     "warnings": plan.warnings,
                     "compliant": plan.compliant,
+                    # 下划线开头 = 内部对象，不进 JSON（step_to_dict 会滤掉）。
+                    # 报告包靠它拿回同一份 plan，而不是本地重算一遍。
+                    "_plan": plan,
                 },
             )
             state["percent"] = 100.0

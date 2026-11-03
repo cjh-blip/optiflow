@@ -192,14 +192,44 @@ def test_uncomputed_metrics_are_listed_not_counted_as_pass():
 def test_untyped_room_standard_pass_is_null():
     v = _pkg(room_type=None)["rooms"][0]["verdict"]
     assert v["standard_pass"] is None, "没有标准可依就没有 pass 可言"
-    assert v["compulsory_ok"] is None
+    assert v["compulsory_ok"] == "unevaluated"
     assert "illuminance_avg" in v["unevaluated"]
+
+
+# ---------------------------------------------------------------- 强制项三态
+
+def test_compulsory_is_tri_state_not_boolean():
+    v = _pkg()["rooms"][0]["verdict"]
+    assert v["compulsory_ok"] in ("pass", "fail", "unevaluated")
+
+
+def test_compulsory_is_unevaluated_because_ra_and_svm_are_not_computed():
+    """Ra 挂着 GB 55016 的强制要求，没算就不能说「符合强制规范」。"""
+    v = _pkg()["rooms"][0]["verdict"]
+    assert v["compulsory_ok"] == "unevaluated"
+    assert "ra" in v["compulsory_missing"]
+    assert "svm" in v["compulsory_missing"]
+    assert v["compulsory_detail"]["lpd_current"] is True
+
+
+def test_ra_cite_includes_mandatory_standard():
+    rows = [r for r in _pkg()["standards_cited"] if r["field"] == "ra"]
+    assert rows, "Ra 必须有出处行"
+    assert any("GB 55016" in r["standard"] for r in rows), \
+        "Ra 是强制要求，出处必须带 GB 55016，不能只挂推荐性国标"
+
+
+def test_compulsory_fail_when_lpd_over_current_limit():
+    v = _pkg(extra={"fixture_power_w": 400.0})["rooms"][0]["verdict"]
+    assert v["compulsory_ok"] == "fail"
+    assert v["compulsory_detail"]["lpd_current"] is False
 
 
 def test_totals_no_longer_claim_fully_compliant():
     t = _pkg()["totals"]
     assert "rooms_fully_compliant" not in t, "这个名字会骗人，已拆成三层"
-    for key in ("rooms_compulsory_ok", "rooms_standard_pass", "rooms_target_met"):
+    for key in ("rooms_compulsory_pass", "rooms_compulsory_fail",
+                "rooms_compulsory_unevaluated", "rooms_standard_pass", "rooms_target_met"):
         assert key in t
 
 
