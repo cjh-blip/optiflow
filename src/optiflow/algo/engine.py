@@ -610,7 +610,8 @@ def plan_layout(task: TaskSpec, *,
             shortfalls.append({
                 "metric": "uniformity_u0", "label": "均匀度 U0",
                 "actual": round(report.u0, 3), "target": round(room_u0, 2),
-                "unit": "", "gap": round(report.u0 - room_u0, 3),
+                "unit": "", "direction": "under", "severity": "below_target",
+                "gap": round(report.u0 - room_u0, 3),
                 "gap_pct": round((room_u0 - report.u0) / room_u0 * 100.0, 1),
                 "cause": (
                     f"边缘间距已收到 {edge_factor:.2f} 个格距（常规 0.5），灯数已加到 {count} 盏，"
