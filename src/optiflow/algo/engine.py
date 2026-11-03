@@ -149,6 +149,13 @@ class RoomPlan:
     lpd_basis: str = ""
     #: 功率是怎么来的：IR 里的 properties["power"] / 调用方给的 / 按光效假定。
     power_source: str = ""
+    #: 目标照度与 U0 目标是从哪来的（空间自带 / 任务显式 / 判据表 / 默认）。
+    #: 不写清的话「0.6」到底是谁定的没人知道。
+    target_basis: str = ""
+    u0_basis: str = ""
+    #: 每个指标的状态：computed / not_computed / not_specified / not_in_standard。
+    #: **没算不等于算了且合格**，报告里必须长得不一样。
+    metric_status: Dict[str, str] = field(default_factory=dict)
 
     @property
     def uniformity_ok(self) -> bool:
@@ -269,10 +276,15 @@ def plan_layout(task: TaskSpec, *,
         )
     flux_per_fixture = float(flux_per_fixture)
 
+    _task_target_explicit = (task.target_of("illuminance_avg") is not None
+                             or "target_lux" in task.extra)
     target_lux = task.target_of("illuminance_avg")
     if target_lux is None:
         target_lux = float(task.extra.get("target_lux", 500.0))
 
+    _task_u0_explicit = (u0_required is not None  # 函数参数显式传入
+                         or task.target_of("uniformity_u0") is not None
+                         or "uniformity_u0" in task.extra)
     if u0_required is None:
         u0_required = task.target_of("uniformity_u0")
     if u0_required is None:
@@ -302,6 +314,43 @@ def plan_layout(task: TaskSpec, *,
         if area <= 0:
             all_warnings.append(f"跳过零面积空间 {space.id}")
             continue
+
+        # ---- 本房间的判据与目标（都必须能说出依据）------------------------
+        std = standards.lookup(space.room_type)
+
+        # 照度目标优先级：空间自带 > 任务显式 > 判据表标准值 > 内置默认。
+        # 多房间图纸上同一张图可以一间会议室 300 lx、一条走廊 50 lx。
+        if space.target_lux is not None:
+            room_target = float(space.target_lux)
+            target_basis = "空间自带目标值"
+        elif _task_target_explicit:
+            room_target = target_lux
+            target_basis = "任务显式指定"
+        elif std is not None and std.illuminance_lux is not None:
+            room_target = float(std.illuminance_lux)
+            target_basis = f"判据表【{std.label}】标准值（{std.sources['illuminance']}）"
+        else:
+            room_target = target_lux
+            target_basis = "内置默认（房间类型未指定，无标准可依）"
+
+        # U0 目标：判据表优先（走廊 0.40 / 办公 0.60 不同），没类型才回落默认。
+        # U0 目标优先级：任务显式 > 判据表 > 默认。
+        # 判据表是**默认建议**，constraints 里写死的目标是显式要求，不该被压掉——
+        # 压掉它的后果是「我要 U0≥0.7」静默变成 0.6，跟「静默传 4.0 层高」是同一类错。
+        # 覆盖关系写进 u0_basis，不留在代码里。
+        if _task_u0_explicit:
+            room_u0 = u0_required
+            u0_basis = "任务显式指定"
+            if std is not None and std.u0_limit is not None:
+                u0_basis += (f"，覆盖判据表【{std.label}】的 {std.u0_limit:.2f}"
+                             f"（{std.sources['u0']}）")
+        elif std is not None and std.u0_limit is not None:
+            room_u0 = float(std.u0_limit)
+            u0_basis = f"判据表【{std.label}】（{std.sources['u0']}）"
+        else:
+            room_u0 = DEFAULT_U0_REQUIRED
+            u0_basis = f"默认 {DEFAULT_U0_REQUIRED:.2f}，非按类型（房间类型未指定）"
+
         mount_height = space.geometry.height
         if mount_height is None:
             raise ValueError(f"空间 {space.id} 缺 geometry.height，算不出房间指数")
@@ -316,7 +365,7 @@ def plan_layout(task: TaskSpec, *,
 
         k = room_index(length, width, mount_height, work_plane)
         uf = uf_lookup(k, ceiling_r, wall_r, table=uf_table)
-        count = fixture_count(target_lux, area, flux_per_fixture, uf, maintenance)
+        count = fixture_count(room_target, area, flux_per_fixture, uf, maintenance)
 
         # solve_uniformity=False 时必须退回【常规排布】而不是仍然偷偷挑最优——
         # 否则「关掉求解器」和「打开求解器」给出同一个方案，这个开关就是假的。
@@ -362,7 +411,7 @@ def plan_layout(task: TaskSpec, *,
             guard = 0
             while (layout.count > nominal_count and guard < MAX_SUPPLEMENT_ROUNDS
                    and average_illuminance(layout.count, flux_per_fixture, uf, area,
-                                           maintenance) > target_lux * SUPPLEMENT_OVERSHOOT):
+                                           maintenance) > room_target * SUPPLEMENT_OVERSHOOT):
                 guard += 1
                 rounds += 1
                 back = count - 1                 # 逐档下探，不二分（二分容易一下跳过可行档）
@@ -388,7 +437,7 @@ def plan_layout(task: TaskSpec, *,
             room_warnings.append(violation)
 
         relayout: Optional[Dict[str, Any]] = None
-        if solve_uniformity and report.u0 < u0_required - 1e-9:
+        if solve_uniformity and report.u0 < room_u0 - 1e-9:
             base_count, base_u0 = count, report.u0
             ceil_count = int(count * MAX_FIXTURE_MULTIPLIER)
             step = max(1, count // 8)
@@ -398,7 +447,7 @@ def plan_layout(task: TaskSpec, *,
                 candidate = min(candidate + step, ceil_count)
                 tried += 1
                 c_layout, c_report, c_full, c_ef = best_at(candidate)
-                if c_report.u0 >= u0_required - 1e-9:
+                if c_report.u0 >= room_u0 - 1e-9:
                     relayout = {
                         "base_count": base_count,
                         "base_u0": base_u0,
@@ -412,18 +461,18 @@ def plan_layout(task: TaskSpec, *,
                     count = candidate
                     break
 
-        if report.u0 < u0_required - 1e-9:
+        if report.u0 < room_u0 - 1e-9:
             room_warnings.append(
-                f"均匀度 U0={report.u0:.2f} 低于要求 {u0_required:.2f}；已把灯数试到 {count} 盏、"
+                f"均匀度 U0={report.u0:.2f} 低于要求 {room_u0:.2f}；已把灯数试到 {count} 盏、"
                 f"边缘间距推到 {edge_factor:.2f} 仍不达标，需要换更宽配光的灯具"
             )
         elif relayout is not None:
-            over = relayout["illuminance_avg"] / target_lux - 1.0
+            over = relayout["illuminance_avg"] / room_target - 1.0
             note = "" if relayout["count"] == relayout["base_count"] else (
                 f"、灯数从 {relayout['base_count']} 加到 {relayout['count']}"
             )
             room_warnings.append(
-                f"为满足 U0>={u0_required:.2f}，把边缘间距收到 {relayout['edge_factor']:.2f} 个格距"
+                f"为满足 U0>={room_u0:.2f}，把边缘间距收到 {relayout['edge_factor']:.2f} 个格距"
                 f"{note}（U0 {relayout['base_u0']:.2f}→{relayout['u0']:.2f}）；"
                 f"代价是平均照度升到 {relayout['illuminance_avg']:.0f} lx（超目标 {over:.0%}）"
             )
@@ -434,7 +483,7 @@ def plan_layout(task: TaskSpec, *,
                 count, polygon, flux_per_fixture, spacing, margin, shr_limit,
                 height_above_plane, DEFAULT_EDGE_FACTOR)[1].u0
             room_warnings.append(
-                f"为满足 U0>={u0_required:.2f}，边缘间距从 {DEFAULT_EDGE_FACTOR:.2f} 收到 "
+                f"为满足 U0>={room_u0:.2f}，边缘间距从 {DEFAULT_EDGE_FACTOR:.2f} 收到 "
                 f"{edge_factor:.2f} 个格距（U0 {conventional_u0:.2f}→{report.u0:.2f}，灯数不变）；"
                 f"边缘灯更贴墙，注意与窗帘盒/墙面的安装冲突"
             )
@@ -523,11 +572,11 @@ def plan_layout(task: TaskSpec, *,
         # 照度档位：400 lx 不是标准分级里的一档（GB/T 50034-2024 第 4.1.1 条）。
         # 这件事比折算口径重要——用户得知道自己在做一个非标设定。
         lpd_basis = standard_basis
-        if std is not None and target_lux > (std.illuminance_lux or 0) + 1e-6:
-            scaled = (std.lpd_current * target_lux / std.illuminance_lux
+        if std is not None and room_target > (std.illuminance_lux or 0) + 1e-6:
+            scaled = (std.lpd_current * room_target / std.illuminance_lux
                       if std.lpd_current and std.illuminance_lux else None)
             lpd_basis += (
-                f"；本房目标 {target_lux:.0f} lx 高于该类型标准值 "
+                f"；本房目标 {room_target:.0f} lx 高于该类型标准值 "
                 f"{std.illuminance_lux:.0f} lx，属于超标准设计")
             if scaled is not None:
                 lpd_basis += (f"；若按线性折算，现行值上限约 {scaled:.2f} W/m²"
@@ -536,8 +585,8 @@ def plan_layout(task: TaskSpec, *,
         # 不达标要给人话，不只给一句 warning：界面要能直接摆出
         # 「哪项、实测多少、目标多少、差多少、为什么、怎么办」。
         shortfalls: List[Dict[str, Any]] = []
-        if predicted_lumen < target_lux - 1e-6:
-            short_pct = (target_lux - predicted_lumen) / target_lux * 100.0
+        if predicted_lumen < room_target - 1e-6:
+            short_pct = (room_target - predicted_lumen) / room_target * 100.0
             if supplement is not None and layout.count < supplement["nominal_count"]:
                 cause = (
                     f"房间轮廓是凹形/带缺口，外接网格上有 "
@@ -552,17 +601,17 @@ def plan_layout(task: TaskSpec, *,
                 action = "换光通量更大的灯具，或增加安装点位"
             shortfalls.append({
                 "metric": "illuminance_avg", "label": "平均照度",
-                "actual": round(predicted_lumen, 1), "target": round(target_lux, 1),
-                "unit": "lx", "gap": round(predicted_lumen - target_lux, 1),
+                "actual": round(predicted_lumen, 1), "target": round(room_target, 1),
+                "unit": "lx", "gap": round(predicted_lumen - room_target, 1),
                 "gap_pct": round(short_pct, 1),
                 "cause": cause, "action": action,
             })
-        if report.u0 < u0_required - 1e-9:
+        if report.u0 < room_u0 - 1e-9:
             shortfalls.append({
                 "metric": "uniformity_u0", "label": "均匀度 U0",
-                "actual": round(report.u0, 3), "target": round(u0_required, 2),
-                "unit": "", "gap": round(report.u0 - u0_required, 3),
-                "gap_pct": round((u0_required - report.u0) / u0_required * 100.0, 1),
+                "actual": round(report.u0, 3), "target": round(room_u0, 2),
+                "unit": "", "gap": round(report.u0 - room_u0, 3),
+                "gap_pct": round((room_u0 - report.u0) / room_u0 * 100.0, 1),
                 "cause": (
                     f"边缘间距已收到 {edge_factor:.2f} 个格距（常规 0.5），灯数已加到 {count} 盏，"
                     "U0 仍上不去；继续收边会贴墙，继续加灯也不会更均匀——"
@@ -591,9 +640,9 @@ def plan_layout(task: TaskSpec, *,
                     f"{need_efficacy:.0f} lm/W），或减少盏数改用更大功率的灯具"),
                 "standard": (std.sources["lpd_current"] if std else LPD_STANDARD_CURRENT),
             })
-            if predicted_lumen >= target_lux - 1e-6:
+            if predicted_lumen >= room_target - 1e-6:
                 room_warnings.append(
-                    f"照度达标（{predicted_lumen:.1f} lx ≥ {target_lux:.0f} lx）但 LPD "
+                    f"照度达标（{predicted_lumen:.1f} lx ≥ {room_target:.0f} lx）但 LPD "
                     f"{power_density:.2f} W/m² 超过现行值 {current_limit:g} W/m²："
                     f"现有灯具下这两个指标无法同时满足，需要换更高光效的灯具"
                     f"（≥{need_efficacy:.0f} lm/W）")
@@ -612,9 +661,34 @@ def plan_layout(task: TaskSpec, *,
             for i, (x, y) in enumerate(inside_positions)
         ]
 
+        # 每个指标的状态——**没算不等于算了且合格**，半年后靠这个分得清。
+        #   computed        算了，且有类型时已按判据比对
+        #   not_computed    算法层没实现（UGR/Ra）
+        #   not_specified   房间类型未指定，无标准可依
+        #   not_in_standard 该类型标准里这一格未收录
+        #
+        # UGR 与 Ra 为何是 not_computed（写给下一个人）：
+        #   算 UGR 需要灯具配光曲线（IES/LDT 逐角度光强分布）+ 房间反射率 + 观察点；
+        #   算 Ra 需要光源光谱功率分布（SPD）。当前 IR 只有光通量一个标量，两个都算不了。
+        #   配光曲线解析在灯库那条线（另仓）。**不要拿余弦定律凑一个填进来**，那是造假数据。
+        metric_status: Dict[str, str] = {}
+        for _name, _limit_attr in (("illuminance_avg", "illuminance_lux"),
+                                   ("uniformity_u0", "u0_limit"),
+                                   ("power_density", "lpd_current"),
+                                   ("ugr", "ugr_limit"),
+                                   ("ra", "ra_limit")):
+            if _name in ("ugr", "ra"):
+                metric_status[_name] = "not_computed"
+            elif std is None:
+                metric_status[_name] = "not_specified"
+            elif getattr(std, _limit_attr, None) is None:
+                metric_status[_name] = "not_in_standard"
+            else:
+                metric_status[_name] = "computed"
+
         rooms.append(RoomPlan(
             space_id=space.id, area=area, room_index=k, utilization_factor=uf,
-            maintenance_factor=maintenance, target_lux=target_lux, u0_required=u0_required,
+            maintenance_factor=maintenance, target_lux=room_target, u0_required=room_u0,
             # 这里报的是**流明法算出的原始名义值**，不是补灯后的名义值：
             # 补灯出来的那些盏是为了抵消轮廓筛选，不改变「这个房间按面积本该多少盏」。
             lumen_method_count=nominal_count, layout=layout, uniformity=report, full_report=full,
@@ -633,6 +707,9 @@ def plan_layout(task: TaskSpec, *,
             standard_key=(std.key if std else None),
             standard_basis=standard_basis,
             power_source=power_source,
+            target_basis=target_basis,
+            u0_basis=u0_basis,
+            metric_status=metric_status,
         ))
         all_warnings.extend(f"{space.id}: {w}" for w in room_warnings)
 
@@ -672,9 +749,9 @@ def plan_layout(task: TaskSpec, *,
     e_min = min(r.uniformity.e_min for r in rooms)
     e_max = max(r.uniformity.e_max for r in rooms)
 
-    if design_avg < target_lux:
+    if design_avg < room_target:
         all_warnings.append(
-            f"预测平均照度 {design_avg:.1f} lx 低于目标 {target_lux:.0f} lx"
+            f"预测平均照度 {design_avg:.1f} lx 低于目标 {room_target:.0f} lx"
             f"（向上取整后仍欠，检查光通量或利用系数）"
         )
 
@@ -682,11 +759,11 @@ def plan_layout(task: TaskSpec, *,
         Metric(name="fixture_count", value=float(total_fixtures), unit="盏"),
         Metric(name="rooms", value=float(len(rooms)), unit="间"),
         Metric(name="area", value=round(total_area, 2), unit="m2"),
-        Metric(name="illuminance_avg", value=round(design_avg, 1), unit="lx", target=target_lux),
+        Metric(name="illuminance_avg", value=round(design_avg, 1), unit="lx", target=room_target),
         Metric(name="illuminance_direct_avg", value=round(direct_avg, 1), unit="lx"),
         Metric(name="illuminance_min", value=round(e_min, 1), unit="lx"),
         Metric(name="illuminance_max", value=round(e_max, 1), unit="lx"),
-        Metric(name="uniformity_u0", value=round(worst_u0, 3), unit="", target=u0_required),
+        Metric(name="uniformity_u0", value=round(worst_u0, 3), unit="", target=room_u0),
         Metric(name="uniformity_u1", value=round(worst_u1, 3), unit=""),
         Metric(name="room_index", value=round(rooms[0].room_index, 3), unit=""),
         Metric(name="utilization_factor", value=round(rooms[0].utilization_factor, 3), unit=""),

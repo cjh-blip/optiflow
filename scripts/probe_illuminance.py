@@ -29,7 +29,8 @@ DEFAULT_DXF = Path(r"D:\homework\optiflow-app\standalone\samples\布局图.dxf")
 
 
 def _task_from_dxf(dxf: Path, target_lux: float, flux: float,
-                   ceil_h: float | None = 4.0, room_type: str | None = None) -> TaskSpec:
+                   ceil_h: float | None = 4.0, room_type: str | None = None,
+                   multi_room: bool = False) -> TaskSpec:
     """用服务层同一条路把 DXF 解析成 IR，再把 IR 收成 TaskSpec。
 
     刻意走 ``PlatformService.import_dxf``，保证探针看到的就是产品看到的。
@@ -57,6 +58,16 @@ def _task_from_dxf(dxf: Path, target_lux: float, flux: float,
                 work_plane=0.75,
                 reflectance={"ceiling": 0.7, "wall": 0.5, "floor": 0.2},
             ))
+    if multi_room and spaces:
+        # 同一轮廓拆成两个空间，演示「一张图里各房间按自己类型和目标判定」
+        base = spaces[0]
+        spaces = [
+            base.model_copy(update={"id": "mtg", "name": "会议室",
+                                    "room_type": "meeting_room", "target_lux": 300.0}),
+            base.model_copy(update={"id": "cor", "name": "走廊",
+                                    "room_type": "corridor", "target_lux": 50.0}),
+        ]
+
     return TaskSpec(kind="layout", spaces=spaces,
                     constraints=[Metric(name="illuminance_avg", target=target_lux, unit="lx")],
                     extra={"flux": flux, "fixture_name": "探针灯",
@@ -141,6 +152,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="显式层高；不传就用 IR 里的值（与产品壳同口径）")
     ap.add_argument("--verbose", action="store_true", help="逐盏坐标全部打印")
     #: 房间类型。不传就是「未指定」——探针也不默认当会议室。
+    ap.add_argument("--multi-room", action="store_true",
+                    help="拆成会议室 300 lx + 走廊 50 lx 两个空间，演示按房间判定")
     ap.add_argument("--room-type", default=None,
                     help="房间类型：会议室 / 普通办公室 / 高档办公室 / 走廊 / 服务大厅")
     args = ap.parse_args(argv)
@@ -148,7 +161,8 @@ def main(argv: list[str] | None = None) -> int:
     dxf = Path(args.dxf)
     print(f"图纸: {dxf}  flux={args.flux}  room_type={args.room_type or '未指定'}")
     for target in args.targets:
-        task = _task_from_dxf(dxf, target, args.flux, args.ceil_h, args.room_type)
+        task = _task_from_dxf(dxf, target, args.flux, args.ceil_h, args.room_type,
+                              multi_room=args.multi_room)
         probe(task, target, args.flux, verbose=args.verbose)
     return 0
 

@@ -39,6 +39,9 @@ class Space(BaseModel):
     #: 留空就是**未指定**——不默认当会议室，也不拿最像的类别顶替；
     #: 未指定时只给实测值，不出标准对标结论。
     room_type: str | None = None
+    #: 本房间自己的照度目标（lx）。空则回落到判据表该类型的标准值。
+    #: 有它之后一张图里会议室 300 lx、走廊 50 lx 能同时成立。
+    target_lux: float | None = None
 
     @property
     def area(self) -> float:

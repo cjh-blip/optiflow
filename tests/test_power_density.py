@@ -188,3 +188,83 @@ def test_conflict_is_stated_when_illuminance_ok_but_lpd_over():
     assert room.predicted_avg_lumen >= room.target_lux - 1e-6
     joined = " ".join(room.warnings)
     assert "无法同时满足" in joined and "光效" in joined
+
+
+# ---------------------------------------------------------------- U0 与指标状态
+
+def test_u0_limit_comes_from_standard_table():
+    """走廊 U0>=0.40、会议室 0.60——同一套房子里不许两套口径。"""
+    mr = plan_layout(_task(300.0, room_type="meeting_room")).rooms[0]
+    cr = plan_layout(_task(300.0, room_type="corridor")).rooms[0]
+    assert mr.u0_required == pytest.approx(0.60)
+    assert cr.u0_required == pytest.approx(0.40)
+    assert "5.3.2" in mr.u0_basis and "5.5.1" in cr.u0_basis
+
+
+def test_u0_basis_names_default_when_type_missing():
+    room = plan_layout(_task(300.0, room_type=None)).rooms[0]
+    assert room.u0_required == pytest.approx(0.60)
+    assert "非按类型" in room.u0_basis
+
+
+def test_metric_status_marks_what_was_not_computed():
+    """UGR / Ra 必须显式标 not_computed，不能和 computed 长一样。"""
+    st = plan_layout(_task(300.0, room_type="meeting_room")).rooms[0].metric_status
+    assert st["illuminance_avg"] == "computed"
+    assert st["uniformity_u0"] == "computed"
+    assert st["power_density"] == "computed"
+    assert st["ugr"] == "not_computed"
+    assert st["ra"] == "not_computed"
+
+
+def test_metric_status_marks_not_specified_without_room_type():
+    st = plan_layout(_task(300.0, room_type=None)).rooms[0].metric_status
+    assert st["illuminance_avg"] == "not_specified"
+    assert st["power_density"] == "not_specified"
+    assert st["ugr"] == "not_computed", "没实现比没标准更根本，优先报 not_computed"
+
+
+def _two_room_task():
+    """一张图两个房间：会议室 300 lx + 走廊 50 lx。"""
+    def sp(sid, outline, room_type, target):
+        return Space(
+            id=sid, name=sid, room_type=room_type, target_lux=target,
+            geometry=Geometry(kind="room", height=4.0,
+                              outline=[Point(x=float(x), y=float(y)) for x, y in outline]),
+            work_plane=0.75,
+            reflectance={"ceiling": 0.7, "wall": 0.5, "floor": 0.2},
+        )
+    return TaskSpec(
+        kind="layout",
+        spaces=[
+            sp("mtg", [(0, 0), (8, 0), (8, 6), (0, 6)], "meeting_room", 300.0),
+            sp("cor", [(10, 0), (14, 0), (14, 6), (10, 6)], "corridor", 50.0),
+        ],
+        fixtures=[],
+        constraints=[],
+        extra={"flux": FLUX, "fixture_name": "测试灯"},
+    )
+
+
+def test_two_rooms_each_use_their_own_target_and_standard():
+    plan = plan_layout(_two_room_task())
+    assert len(plan.rooms) == 2
+    by_id = {r.space_id: r for r in plan.rooms}
+    mtg, cor = by_id["mtg"], by_id["cor"]
+    assert mtg.target_lux == pytest.approx(300.0) and cor.target_lux == pytest.approx(50.0)
+    assert "空间自带" in mtg.target_basis and "空间自带" in cor.target_basis
+    assert mtg.u0_required == pytest.approx(0.60) and cor.u0_required == pytest.approx(0.40)
+    assert mtg.lpd_current_limit == pytest.approx(8.0)
+    assert cor.lpd_current_limit == pytest.approx(2.0)
+    assert mtg.standard_key == "meeting_room" and cor.standard_key == "corridor"
+
+
+def test_space_target_falls_back_to_standard_value():
+    """Space 不给 target_lux 时，取判据表该类型的标准值。"""
+    sp = _two_room_task().spaces[1]
+    sp.target_lux = None
+    task = _two_room_task()
+    task.spaces[1].target_lux = None
+    cor = {r.space_id: r for r in plan_layout(task).rooms}["cor"]
+    assert cor.target_lux == pytest.approx(50.0)
+    assert "判据表" in cor.target_basis and "5.5.1" in cor.target_basis
