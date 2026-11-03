@@ -18,7 +18,7 @@
 | `uncovered` | array | 未覆盖项。**不许留白** |
 | `assumptions` | array\<str\> | 算法层声明的前提（如层高按 4.0 m 假设） |
 | `warnings` | array\<str\> | 整份计划级 warning |
-| `pipeline` | object \| null | 指回某次运行：`{job_id, steps, source}` |
+| `pipeline` | object \| null | 指回某次运行，见下。**默认出口必是真平台运行** |
 | `totals` | object | 汇总，见下 |
 
 ## rooms[]（每间房一条）
@@ -43,7 +43,22 @@
 | `nominal_count` | int | 按面积算的**名义**盏数。与 `fixture_count` 不同是设计意图 |
 | `supplement` | object \| null | 补灯记录 `{nominal_count, actual_before, dropped_ratio, rounds, actual_after, nominal_after}`；null = 没补过 |
 | `metric_status` | object | 每个指标一态，见下 |
+| `verdict` | object | **三层判据**，见下。不许挤成一个布尔 |
 | `warnings` | array\<str\> | 本房间 warning |
+
+### verdict 三层
+
+「合规」和「达标」不是一回事，所以拆开算，**不作一个 `fully_compliant`**。
+那个名字会让人以为已计算的指标全过了，实际上会漏掉 U₀—— U₀ 0.56 / 要求 0.60 的房间
+被报成「完全合规」，评审一眼就能看出错。
+
+| 字段 | 含义 | 性质 |
+|---|---|---|
+| `compulsory_ok` | **只看 LPD 现行值**。GB 55015 是强制性规范，这层不过就是真不合规 | bool \| null（null = 没标准） |
+| `standard_pass` | 照度 / U₀ / LPD 按 GB/T 50034 标准值逐项判，**已计算项全过才 true** | bool \| null（null = 无类型可依） |
+| `target_met` | LPD 目标值这类更严的推荐线 | bool \| null |
+| `evaluated` | `{指标名: bool}`，实际参与了 `standard_pass` 的项 | object |
+| `unevaluated` | 未计算的指标名列表（`ugr` / `ra` / …），**不参与判定，也不冒充通过** | array |
 
 ### metric_status 四态
 
@@ -113,17 +128,38 @@
 
 新增未覆盖项要同时更新 `UNCOVERED_ITEMS` 里的四条信息；**删条目要写理由**。
 
+## pipeline
+
+报告包**默认从一次真实的平台运行产出**（`PlatformService.submit` → 等终态 → 取步摘要），
+不是脚本直调 `plan_layout`。直调那条只留给 CLI 快速调试（`--cli-only`，`source="cli"`）。
+
+| 字段 | 说明 |
+|---|---|
+| `job_id` | 平台任务号。**真运行时非空** |
+| `steps` | 每步 `{name, adapter, job_id, metrics}`；失败时另带 `checks_failed` |
+| `source` | `platform`（真运行）/ `cli`（直调调试） |
+| `status` | `done` / `failed`。**失败也照样出包**——它更该把缺口带出来 |
+| `message` | 失败原因原话 |
+| `elapsed_s` | 平台记录的耗时 |
+| `cross_check` | 产物对账：`{plan_json, plan_json_fixture_count, fixture_count_in_package, fixture_count_matched}`；对不上就是 false，不遮掩 |
+
+注意：平台的 `plan` 步带 `uniformity_u0>=目标` 校验，U₀ 不达标的房间会**整步失败**。
+这不是缺陷，是编排层如实拦下。报告包在这种情况下仍然产出，`status=failed`、
+`checks_failed` 列出被拦的项——**不为了让包变绿去调目标值**。
+
 ## totals
 
 | 字段 | 说明 |
 |---|---|
-| `room_count` | 房间数 |
-| `fixture_count` | 总盏数 |
-| `area_m2` | 总面积 |
-| `total_power_w` | 总功率 |
-| `rooms_fully_compliant` | 照度达标且 LPD 未判不合规的房间数 |
+| `room_count` / `fixture_count` / `area_m2` / `total_power_w` | 汇总 |
+| `rooms_compulsory_ok` | 强制项（LPD 现行值）通过的房间数 |
+| `rooms_standard_pass` | 已计算项全过的房间数 |
+| `rooms_target_met` | LPD 达到目标值的房间数 |
+| `rooms_unevaluated` | `{指标名: 未计算它的房间数}`，只列真的出现的项 |
+
+**没有 `rooms_fully_compliant`。** 那个名字会骗人，已拆成上面三层。
 
 ## 追溯规则
 
-1. 包里每个数值要么来自某次 `plan_layout` 的结果（`pipeline` 指回 job），要么来自判据表某行（`standards_cited` 有出处）。**没有第三种来源。**
+1. 包里每个数值要么来自某次 `plan_layout` 的结果（`pipeline` 指回 job），要么来自判据表某行（`standards_cited` 有出处）。**没有第三种来源。** `pipeline.cross_check` 是对账，不是第二来源。
 2. 房间类型未指定时，`standard_key` / `lpd.*_limit` / `lpd.compliant` 全为 null，`metric_status` 为 `not_specified`——这不是「缺数据」，是「没有标准可依」，两者在报告里要分开写。

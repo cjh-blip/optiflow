@@ -135,6 +135,36 @@ def _standards_cited(plan: LayoutPlan) -> List[Dict[str, Any]]:
     return rows
 
 
+def _verdict(room: RoomPlan) -> Dict[str, Any]:
+    """三层判据。**「合规」与「达标」不是一回事**，不能挤成一个布尔。
+
+    - compulsory_ok：只看 LPD 现行值。GB 55015 是**强制性规范**，这一层不过就是真不合规。
+    - standard_pass：照度 / U0 / LPD 按标准值逐项判，**已计算项全过才算 true**；
+      未计算的项（UGR / Ra / 未指定类型）单独列进 unevaluated，**不参与判定、也不冒充通过**。
+    - target_met：LPD 目标值这类更严的推荐线。
+
+    名字叫 pass 就不能漏任何一项已计算指标——漏了就会把 U0 0.56 的房间报成「完全合规」。
+    """
+    evaluated: Dict[str, bool] = {
+        "illuminance_avg": room.predicted_avg_lumen >= room.target_lux - 1e-6,
+        "uniformity_u0": room.uniformity_ok,
+    }
+    if room.lpd_current_limit is not None and room.lpd_compliant is not None:
+        evaluated["power_density"] = bool(room.lpd_compliant)
+    unevaluated = sorted(k for k, v in room.metric_status.items()
+                         if v in ("not_computed", "not_specified", "not_in_standard"))
+    return {
+        "compulsory_ok": (None if room.lpd_compliant is None
+                          else bool(room.lpd_compliant)),
+        "standard_pass": (None if room.standard_key is None
+                          else all(evaluated.values())),
+        "target_met": (None if room.lpd_meets_target is None
+                       else bool(room.lpd_meets_target)),
+        "evaluated": evaluated,
+        "unevaluated": unevaluated,
+    }
+
+
 def build_report_package(plan: LayoutPlan, task: TaskSpec,
                          pipeline: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """把一份 LayoutPlan 收成报告数据包。
@@ -171,6 +201,7 @@ def build_report_package(plan: LayoutPlan, task: TaskSpec,
             "nominal_count": room.lumen_method_count,
             "supplement": room.supplement,
             "metric_status": dict(room.metric_status),
+            "verdict": _verdict(room),
             "warnings": list(room.warnings),
         })
         for item in room.shortfalls:
@@ -204,10 +235,19 @@ def build_report_package(plan: LayoutPlan, task: TaskSpec,
             "fixture_count": sum(r["fixture_count"] for r in rooms_out),
             "area_m2": round(sum(r["area_m2"] for r in rooms_out), 2),
             "total_power_w": round(sum(r.power_total_w or 0.0 for r in plan.rooms), 1),
-            "rooms_fully_compliant": sum(
-                1 for r in plan.rooms
-                if r.lpd_compliant is not False and r.predicted_avg_lumen >= r.target_lux - 1e-6
-            ),
+            # 三层分开数，**不再给一个冒充全过的 "fully_compliant"**。
+            "rooms_compulsory_ok": sum(1 for r in rooms_out
+                                       if r["verdict"]["compulsory_ok"] is True),
+            "rooms_standard_pass": sum(1 for r in rooms_out
+                                       if r["verdict"]["standard_pass"] is True),
+            "rooms_target_met": sum(1 for r in rooms_out
+                                    if r["verdict"]["target_met"] is True),
+            "rooms_unevaluated": {
+                key: sum(1 for r in rooms_out if key in r["verdict"]["unevaluated"])
+                for key in ("ugr", "ra", "uniformity_u0", "illuminance_avg",
+                            "power_density")
+                if any(key in r["verdict"]["unevaluated"] for r in rooms_out)
+            },
         },
     }
 

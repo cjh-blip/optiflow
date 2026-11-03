@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from optiflow.algo.engine import plan_layout
 from optiflow.ir import Fixture, Geometry, Metric, Point, Space, TaskSpec
 from optiflow.report_package import (
@@ -160,3 +162,50 @@ def test_pipeline_can_be_attached():
     pkg = build_report_package(plan, task,
                                pipeline={"job_id": "job-x", "steps": [], "source": "test"})
     assert pkg["pipeline"]["job_id"] == "job-x"
+
+
+# ---------------------------------------------------------------- 三层判据
+
+def test_verdict_is_three_layers_not_one_boolean():
+    v = _pkg()["rooms"][0]["verdict"]
+    for key in ("compulsory_ok", "standard_pass", "target_met", "evaluated", "unevaluated"):
+        assert key in v, f"缺 {key}"
+    assert isinstance(v["evaluated"], dict) and v["evaluated"]
+
+
+def test_standard_pass_is_false_when_u0_fails():
+    """关键防线：U0 不达标就不能叫 standard_pass，哪怕照度与 LPD 都过了。"""
+    room = _pkg()["rooms"][0]
+    if room["u0_ok"]:
+        pytest.skip("这个样本 U0 恰好达标，测不出这道防线")
+    assert room["verdict"]["standard_pass"] is False
+    assert room["verdict"]["evaluated"]["uniformity_u0"] is False
+    assert room["verdict"]["evaluated"]["illuminance_avg"] is True
+
+
+def test_uncomputed_metrics_are_listed_not_counted_as_pass():
+    v = _pkg()["rooms"][0]["verdict"]
+    assert "ugr" in v["unevaluated"] and "ra" in v["unevaluated"]
+    assert "ugr" not in v["evaluated"], "没算的项不许冒充通过"
+
+
+def test_untyped_room_standard_pass_is_null():
+    v = _pkg(room_type=None)["rooms"][0]["verdict"]
+    assert v["standard_pass"] is None, "没有标准可依就没有 pass 可言"
+    assert v["compulsory_ok"] is None
+    assert "illuminance_avg" in v["unevaluated"]
+
+
+def test_totals_no_longer_claim_fully_compliant():
+    t = _pkg()["totals"]
+    assert "rooms_fully_compliant" not in t, "这个名字会骗人，已拆成三层"
+    for key in ("rooms_compulsory_ok", "rooms_standard_pass", "rooms_target_met"):
+        assert key in t
+
+
+def test_totals_standard_pass_counts_u0_failures():
+    pkg = _pkg()
+    if pkg["rooms"][0]["u0_ok"]:
+        pytest.skip("U0 达标，测不出计数差")
+    assert pkg["totals"]["rooms_standard_pass"] == 0
+    assert pkg["totals"]["rooms_compulsory_ok"] == 1
