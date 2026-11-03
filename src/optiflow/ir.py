@@ -35,6 +35,10 @@ class Space(BaseModel):
     geometry: Geometry
     work_plane: float | None = None
     reflectance: dict[str, float] = Field(default_factory=dict)
+    #: 房间类型（判据表键或中文别名：会议室 / 普通办公室 / 走廊 …）。
+    #: 留空就是**未指定**——不默认当会议室，也不拿最像的类别顶替；
+    #: 未指定时只给实测值，不出标准对标结论。
+    room_type: str | None = None
 
     @property
     def area(self) -> float:

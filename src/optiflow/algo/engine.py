@@ -31,6 +31,7 @@ from .layout import (
     plan_grid,
     spacing_violation,
 )
+from . import standards
 from .lumen import (
     DEFAULT_MAINTENANCE_FACTOR,
     DEFAULT_WORK_PLANE,
@@ -140,6 +141,10 @@ class RoomPlan:
     lpd_target_limit: Optional[float] = None
     lpd_compliant: Optional[bool] = None
     lpd_meets_target: Optional[bool] = None
+    #: 房间类型与对标依据。room_type 为空就是未指定，不出标准对标结论。
+    room_type: str = ""
+    standard_key: Optional[str] = None
+    standard_basis: str = ""
     #: 档位口径：标准照度档多少、本次目标多少、限值是怎么套的。
     lpd_basis: str = ""
     #: 功率是怎么来的：IR 里的 properties["power"] / 调用方给的 / 按光效假定。
@@ -278,6 +283,15 @@ def plan_layout(task: TaskSpec, *,
     assumptions: List[str] = []
     all_warnings: List[str] = []
     rooms: List[RoomPlan] = []
+
+    # 照度档位先行提示：400 lx 不在标准分级里（GB/T 50034-2024 第 4.1.1 条），
+    # 用户得知道自己在做非标设定——这比折算口径重要。
+    if not standards.is_standard_lux(target_lux):
+        lo, hi = standards.nearest_levels(target_lux)
+        near = "与".join(f"{v:.0f} lx" for v in (lo, hi) if v is not None) or "（超出表范围）"
+        all_warnings.append(
+            f"目标照度 {target_lux:.0f} lx 不是标准照度档（{standards.ILLUMINANCE_LEVELS_REF}"
+            f"规定的分级）；最近的标准档是 {near}，本次属于非标设定")
 
     for space in task.spaces:
         if space.geometry.kind != "room":
@@ -483,24 +497,41 @@ def plan_layout(task: TaskSpec, *,
                 f"（IR 里没有功率字段）")
         power_total = power_per_fixture * actual_count
         power_density = power_total / area
-        lpd_compliant = power_density <= LPD_CURRENT_LIMIT_W_PER_M2 + 1e-9
-        lpd_meets_target = power_density <= LPD_TARGET_LIMIT_W_PER_M2 + 1e-9
 
-        # 档位口径：会议室的标准照度档是 300 lx（GB/T 50034-2024 表 5.3.2）。
-        # 目标定得比它高就是超标准设计，这时套 300 lx 那行限值属于**口径选择**，
-        # 必须写出来，不能默认套。参照值按「照度提高一级时限值按比例提高」算，
-        # 但**判定仍按标准档**（那是实际拿去验收的数）。
-        standard_lux = float(task.extra.get("standard_lux", DEFAULT_STANDARD_LUX))
-        lpd_basis = (
-            f"按会议室标准照度档 {standard_lux:.0f} lx 的限值判定"
-            f"（{LPD_STANDARD_CURRENT}）")
-        if target_lux > standard_lux + 1e-6:
-            scaled = LPD_CURRENT_LIMIT_W_PER_M2 * target_lux / standard_lux
+        # 判据从房间类型查表。空就是不查——**不默认套会议室**，也不拿最像的顶替。
+        std = standards.lookup(space.room_type)
+        if std is None:
+            where = ("未指定房间类型" if not space.room_type
+                     else f"房间类型 {space.room_type!r} 本工作区未收录判据")
+            standard_basis = f"{where}，未做标准对标；下面只给实测值"
+            current_limit: Optional[float] = None
+            target_limit: Optional[float] = None
+        else:
+            standard_basis = (
+                f"按【{std.label}】：照度标准值 {std.illuminance_lux:.0f} lx、"
+                f"UGR≤{std.ugr_limit:.0f}、U0≥{std.u0_limit:.2f}、Ra≥{std.ra_limit:.0f}"
+                f"（{std.sources['illuminance']}）；LPD 现行值 ≤{std.lpd_current:g}"
+                f"（{std.sources['lpd_current']}）、目标值 ≤{std.lpd_target:g}"
+                f"（{std.sources['lpd_target']}）")
+            current_limit = std.lpd_current
+            target_limit = std.lpd_target
+        lpd_compliant = (None if current_limit is None
+                         else power_density <= current_limit + 1e-9)
+        lpd_meets_target = (None if target_limit is None
+                            else power_density <= target_limit + 1e-9)
+
+        # 照度档位：400 lx 不是标准分级里的一档（GB/T 50034-2024 第 4.1.1 条）。
+        # 这件事比折算口径重要——用户得知道自己在做一个非标设定。
+        lpd_basis = standard_basis
+        if std is not None and target_lux > (std.illuminance_lux or 0) + 1e-6:
+            scaled = (std.lpd_current * target_lux / std.illuminance_lux
+                      if std.lpd_current and std.illuminance_lux else None)
             lpd_basis += (
-                f"；本房目标 {target_lux:.0f} lx 属于超标准设计，套 {standard_lux:.0f} lx"
-                f" 那行限值本身是口径选择。若按照度比线性折算，现行值上限约 "
-                f"{scaled:.2f} W/m²（类比折算，非标准原文），结论会不同——"
-                f"本结果不折算")
+                f"；本房目标 {target_lux:.0f} lx 高于该类型标准值 "
+                f"{std.illuminance_lux:.0f} lx，属于超标准设计")
+            if scaled is not None:
+                lpd_basis += (f"；若按线性折算，现行值上限约 {scaled:.2f} W/m²"
+                              f"（类比折算，非标准原文），本结果不折算")
 
         # 不达标要给人话，不只给一句 warning：界面要能直接摆出
         # 「哪项、实测多少、目标多少、差多少、为什么、怎么办」。
@@ -540,37 +571,36 @@ def plan_layout(task: TaskSpec, *,
             })
         # LPD 分两层判：超现行值才算「不合规」，进 shortfalls；
         # 过了现行值但没达到目标值，只是「不够好」，单独记，不抹成不合规。
-        if not lpd_compliant:
-            need_efficacy = actual_count * flux_per_fixture / (LPD_CURRENT_LIMIT_W_PER_M2 * area)
+        if not lpd_compliant and current_limit is not None:
+            need_efficacy = actual_count * flux_per_fixture / (current_limit * area)
             shortfalls.append({
                 "metric": "power_density", "label": "照明功率密度 LPD（现行值）",
-                "actual": round(power_density, 2), "target": LPD_CURRENT_LIMIT_W_PER_M2,
+                "actual": round(power_density, 2), "target": current_limit,
                 "unit": "W/m2", "direction": "over", "severity": "non_compliant",
-                "gap": round(power_density - LPD_CURRENT_LIMIT_W_PER_M2, 2),
-                "gap_pct": round((power_density - LPD_CURRENT_LIMIT_W_PER_M2)
-                                 / LPD_CURRENT_LIMIT_W_PER_M2 * 100.0, 1),
+                "gap": round(power_density - current_limit, 2),
+                "gap_pct": round((power_density - current_limit)
+                                 / current_limit * 100.0, 1),
                 "cause": (
                     f"{actual_count} 盏 × {power_per_fixture:.1f} W ÷ {area:.2f} m² "
-                    f"= {power_density:.2f} W/m²，超过 {LPD_STANDARD_CURRENT} 的 "
-                    f"{LPD_CURRENT_LIMIT_W_PER_M2} W/m²；功率来源：{power_source}。"
-                    f"{lpd_basis}。补灯把照度补够了，但灯越多功率越大，"
-                    "照度与 LPD 在这里互相打架"),
+                    f"= {power_density:.2f} W/m²，超过现行值 {current_limit:g} W/m²"
+                    f"（{std.sources['lpd_current'] if std else LPD_STANDARD_CURRENT}）；"
+                    f"功率来源：{power_source}。{lpd_basis}。补灯把照度补够了，"
+                    "但灯越多功率越大，照度与 LPD 在这里互相打架"),
                 "action": (
                     f"换光效更高的灯具（同光通量下功率更小；要在现行值下合规需光效 ≥ "
                     f"{need_efficacy:.0f} lm/W），或减少盏数改用更大功率的灯具"),
-                "standard": LPD_STANDARD_CURRENT,
+                "standard": (std.sources["lpd_current"] if std else LPD_STANDARD_CURRENT),
             })
             if predicted_lumen >= target_lux - 1e-6:
                 room_warnings.append(
                     f"照度达标（{predicted_lumen:.1f} lx ≥ {target_lux:.0f} lx）但 LPD "
-                    f"{power_density:.2f} W/m² 超过现行值 {LPD_CURRENT_LIMIT_W_PER_M2} W/m²"
-                    f"（{LPD_STANDARD_CURRENT}）：现有灯具下这两个指标无法同时满足，"
-                    f"需要换更高光效的灯具（≥{need_efficacy:.0f} lm/W）")
-        elif not lpd_meets_target:
+                    f"{power_density:.2f} W/m² 超过现行值 {current_limit:g} W/m²："
+                    f"现有灯具下这两个指标无法同时满足，需要换更高光效的灯具"
+                    f"（≥{need_efficacy:.0f} lm/W）")
+        elif lpd_compliant and not lpd_meets_target and target_limit is not None:
             room_warnings.append(
-                f"LPD {power_density:.2f} W/m² 合规（现行值 ≤{LPD_CURRENT_LIMIT_W_PER_M2}），"
-                f"但未达到目标值 {LPD_TARGET_LIMIT_W_PER_M2} W/m²"
-                f"（{LPD_STANDARD_TARGET}）；这是优化空间，不是合规问题")
+                f"LPD {power_density:.2f} W/m² 合规（现行值 ≤{current_limit:g}），"
+                f"但未达到目标值 {target_limit:g} W/m²；这是优化空间，不是合规问题")
 
         fixtures = [
             Fixture(
@@ -595,10 +625,13 @@ def plan_layout(task: TaskSpec, *,
             shortfalls=shortfalls,
             power_total_w=round(power_total, 1),
             power_density=round(power_density, 2),
-            lpd_current_limit=LPD_CURRENT_LIMIT_W_PER_M2,
-            lpd_target_limit=LPD_TARGET_LIMIT_W_PER_M2,
+            lpd_current_limit=current_limit,
+            lpd_target_limit=target_limit,
             lpd_compliant=lpd_compliant, lpd_meets_target=lpd_meets_target,
             lpd_basis=lpd_basis,
+            room_type=str(space.room_type or ""),
+            standard_key=(std.key if std else None),
+            standard_basis=standard_basis,
             power_source=power_source,
         ))
         all_warnings.extend(f"{space.id}: {w}" for w in room_warnings)

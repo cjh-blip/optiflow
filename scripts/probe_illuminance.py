@@ -29,7 +29,7 @@ DEFAULT_DXF = Path(r"D:\homework\optiflow-app\standalone\samples\布局图.dxf")
 
 
 def _task_from_dxf(dxf: Path, target_lux: float, flux: float,
-                   ceil_h: float | None = 4.0) -> TaskSpec:
+                   ceil_h: float | None = 4.0, room_type: str | None = None) -> TaskSpec:
     """用服务层同一条路把 DXF 解析成 IR，再把 IR 收成 TaskSpec。
 
     刻意走 ``PlatformService.import_dxf``，保证探针看到的就是产品看到的。
@@ -49,6 +49,7 @@ def _task_from_dxf(dxf: Path, target_lux: float, flux: float,
             spaces.append(Space(
                 id=str(item.get("id") or f"space-{len(spaces)}"),
                 name=str(item.get("name") or ""),
+                room_type=room_type,
                 geometry=Geometry(kind="room",
                                   height=float(ceil_h if ceil_h is not None
                                                else (item.get("ceil_h") or 4.0)),
@@ -87,13 +88,18 @@ def probe(task: TaskSpec, target_lux: float, flux: float, verbose: bool = True) 
               f"直射={room.full_report.e_avg:.1f}  U0={room.uniformity.u0:.3f}  "
               f"目标={room.target_lux:.0f}  "
               f"达标={room.predicted_avg_lumen >= room.target_lux - 1e-6}")
-        lpd_txt = (f"{room.power_density:.2f} W/m²  "
-                   f"现行值 ≤{room.lpd_current_limit} → "
-                   f"{'合规' if room.lpd_compliant else '不合规'}  |  "
-                   f"目标值 ≤{room.lpd_target_limit} → "
-                   f"{'达到' if room.lpd_meets_target else '未达到'}")
-        print(f"  LPD: {lpd_txt}  (总功率 {room.power_total_w} W；{room.power_source})")
-        print(f"       口径：{room.lpd_basis}")
+        cur = room.lpd_current_limit
+        tgt = room.lpd_target_limit
+        verdict = ("不判（未指定类型或未收录）" if room.lpd_compliant is None
+                   else ("合规" if room.lpd_compliant else "不合规"))
+        target_v = ("—" if room.lpd_meets_target is None
+                    else ("达到" if room.lpd_meets_target else "未达到"))
+        cur_txt = "—" if cur is None else f"{cur:g}"
+        tgt_txt = "—" if tgt is None else f"{tgt:g}"
+        print(f"  LPD: {room.power_density:.2f} W/m²  现行值 ≤{cur_txt} → {verdict}  |  "
+              f"目标值 ≤{tgt_txt} → {target_v}  "
+              f"(总功率 {room.power_total_w} W；{room.power_source})")
+        print(f"       对标：{room.standard_basis}")
         implied = room.predicted_avg_lumen * room.area / (
             max(n_actual, 1) * room.flux_per_fixture)
         print(f"  反推 CU×MF = E×A/(N×Φ) = "
@@ -134,12 +140,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ceil-h", type=float, default=None,
                     help="显式层高；不传就用 IR 里的值（与产品壳同口径）")
     ap.add_argument("--verbose", action="store_true", help="逐盏坐标全部打印")
+    #: 房间类型。不传就是「未指定」——探针也不默认当会议室。
+    ap.add_argument("--room-type", default=None,
+                    help="房间类型：会议室 / 普通办公室 / 高档办公室 / 走廊 / 服务大厅")
     args = ap.parse_args(argv)
 
     dxf = Path(args.dxf)
-    print(f"图纸: {dxf}  flux={args.flux}  ceil_h={args.ceil_h or '未指定（用 IR 的）'}")
+    print(f"图纸: {dxf}  flux={args.flux}  room_type={args.room_type or '未指定'}")
     for target in args.targets:
-        task = _task_from_dxf(dxf, target, args.flux, args.ceil_h)
+        task = _task_from_dxf(dxf, target, args.flux, args.ceil_h, args.room_type)
         probe(task, target, args.flux, verbose=args.verbose)
     return 0
 

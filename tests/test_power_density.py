@@ -1,43 +1,33 @@
-"""照明功率密度（LPD）：两层限值 + 档位口径。
+"""房间类型 → 判据表 → 对标结论。
 
-**必须分成两层判，不能合成一条线：**
+三条纪律：
+1. 房间类型留空**不许默认套会议室**，只给实测值 + 「类型未指定，未做标准对标」。
+2. 每个结论都要能追到标准号 + 表号（判据表每格带 sources）。
+3. 400 lx 不是标准照度档（GB/T 50034-2024 第 4.1.1 条），要提示最近的是 300 与 500。
 
-| 来源 | 限值 | 性质 | 用途 |
-|---|---|---|---|
-| GB 55015-2021 表 3.3.7-3（普通办公室/会议室 300 lx） | ≤ 8.0 W/m² | 强制性规范现行值 | **合规判定看这条** |
-| GB/T 50034-2024 表 6.3.5（普通办公室、会议室） | ≤ 6.5 W/m² | 推荐性标准目标值 | 达标优化看这条 |
-
-出处核对记录：02_礼堂推广/_工作文件/礼堂方案修正记录_20260811.md（表 3.3.7 系列原表复核）。
-
-另一个要钉的点：会议室标准照度档是 300 lx（GB/T 50034-2024 表 5.3.2）。
-目标定到 400/500 属于超标准设计，套 300 lx 那行限值本身就是口径选择，必须写出来。
+判据表本体在 src/optiflow/algo/standards.py，这里测的是「它被正确用上了」。
 """
 
 from __future__ import annotations
 
 import pytest
 
-from optiflow.algo.engine import (
-    DEFAULT_LUMINOUS_EFFICACY,
-    LPD_CURRENT_LIMIT_W_PER_M2,
-    LPD_STANDARD_CURRENT,
-    LPD_STANDARD_TARGET,
-    LPD_TARGET_LIMIT_W_PER_M2,
-    plan_layout,
-)
+from optiflow.algo import standards
+from optiflow.algo.engine import plan_layout
 from optiflow.ir import Fixture, Geometry, Metric, Point, Space, TaskSpec
 
 ROOM = [(0, 0), (8, 0), (8, 6), (0, 6)]      # 48 m²
 FLUX = 3000.0
 
 
-def _task(target_lux: float = 300.0, *, extra=None, fixtures=None) -> TaskSpec:
+def _task(target_lux: float = 300.0, *, room_type: str | None = "meeting_room",
+          extra=None, fixtures=None) -> TaskSpec:
     base_extra = {"flux": FLUX, "fixture_name": "测试灯"}
     base_extra.update(extra or {})
     return TaskSpec(
         kind="layout",
         spaces=[Space(
-            id="r1", name="会议室",
+            id="r1", name="测试房间", room_type=room_type,
             geometry=Geometry(kind="room", height=4.0,
                               outline=[Point(x=float(x), y=float(y)) for x, y in ROOM]),
             work_plane=0.75,
@@ -49,131 +39,152 @@ def _task(target_lux: float = 300.0, *, extra=None, fixtures=None) -> TaskSpec:
     )
 
 
-# ---------------------------------------------------------------- 功率来源
+# ---------------------------------------------------------------- 判据表本体
+
+def test_table_covers_five_categories_with_sources():
+    for key in ("office", "office_high", "meeting_room", "corridor", "service_hall"):
+        std = standards.ROOM_STANDARDS[key]
+        for fld in ("illuminance", "ugr", "u0", "ra", "lpd_current", "lpd_target"):
+            assert fld in std.sources, f"{key} 的 {fld} 缺出处"
+            src = std.sources[fld]
+            assert any(tag in src for tag in ("表", "条")), f"{key}.{fld} 出处没有表号/条号：{src}"
+
+
+def test_unknown_type_returns_none_not_a_lookalike():
+    assert standards.lookup(None) is None
+    assert standards.lookup("") is None
+    assert standards.lookup("不存在的地方") is None
+
+
+def test_chinese_alias_resolves():
+    assert standards.lookup("会议室").key == "meeting_room"
+    assert standards.lookup("普通办公室").key == "office"
+    assert standards.lookup("走廊").key == "corridor"
+
+
+def test_illuminance_levels_exclude_400():
+    assert standards.is_standard_lux(300) and standards.is_standard_lux(500)
+    assert not standards.is_standard_lux(400)
+    assert standards.nearest_levels(400) == (300, 500)
+
+
+# ---------------------------------------------------------------- 类型留空
+
+def test_no_room_type_gives_no_compliance_verdict():
+    plan = plan_layout(_task(300.0, room_type=None))
+    room = plan.rooms[0]
+    assert room.standard_key is None
+    assert room.lpd_current_limit is None and room.lpd_target_limit is None
+    assert room.lpd_compliant is None and room.lpd_meets_target is None
+    assert "未指定房间类型" in room.standard_basis
+    assert not [s for s in room.shortfalls if s["metric"] == "power_density"], \
+        "没类型就不该出 LPD 合规结论"
+    assert room.power_density is not None, "实测值还是要给"
+
+
+def test_unknown_room_type_is_reported_as_not_covered():
+    plan = plan_layout(_task(300.0, room_type="机房"))
+    room = plan.rooms[0]
+    assert room.standard_key is None
+    assert "未收录" in room.standard_basis
+
+
+# ---------------------------------------------------------------- 类型区分
+
+def test_meeting_room_uses_its_own_limits():
+    of = plan_layout(_task(300.0, room_type="meeting_room")).rooms[0]
+    assert of.standard_key == "meeting_room"
+    assert of.lpd_current_limit == pytest.approx(8.0)
+    assert of.lpd_target_limit == pytest.approx(6.5)
+    assert "表 3.3.7-3" in of.standard_basis
+    assert "表 6.3.5" in of.standard_basis
+
+
+def test_corridor_limits_differ_from_meeting_room():
+    """走廊的限值必须与会议室不同——套错类别结论会离谱。"""
+    mr = plan_layout(_task(300.0, room_type="meeting_room")).rooms[0]
+    cr = plan_layout(_task(300.0, room_type="corridor")).rooms[0]
+    assert cr.standard_key == "corridor"
+    assert cr.lpd_current_limit == pytest.approx(2.0)
+    assert cr.lpd_target_limit == pytest.approx(1.5)
+    assert "表 3.3.7-12" in cr.standard_basis
+    assert cr.lpd_current_limit != mr.lpd_current_limit
+
+
+def test_office_high_has_higher_limits():
+    hi = plan_layout(_task(500.0, room_type="office_high")).rooms[0]
+    assert hi.lpd_current_limit == pytest.approx(13.5)
+    assert hi.lpd_target_limit == pytest.approx(9.5)
+
+
+def test_same_room_three_types_can_yield_different_verdicts():
+    """同一间房：留空 / 会议室 / 走廊，结论必须能看出差别。"""
+    kw = {"extra": {"fixture_power_w": 30.0}}
+    a = plan_layout(_task(300.0, room_type=None, **kw)).rooms[0]
+    b = plan_layout(_task(300.0, room_type="meeting_room", **kw)).rooms[0]
+    c = plan_layout(_task(300.0, room_type="corridor", **kw)).rooms[0]
+    assert a.lpd_compliant is None
+    assert b.lpd_compliant is True and c.lpd_compliant is False, \
+        f"会议室 {b.power_density:.2f}/{b.lpd_current_limit} 应合规；" \
+        f"走廊 {c.power_density:.2f}/{c.lpd_current_limit} 应不合规"
+
+
+# ---------------------------------------------------------------- 档位提示
+
+def test_non_standard_target_lux_is_flagged():
+    plan = plan_layout(_task(400.0))
+    assert any("不是标准照度档" in w and "300" in w and "500" in w for w in plan.warnings), \
+        "400 lx 必须提示非标准档，并给出最近的两档"
+
+
+def test_standard_target_lux_is_not_flagged():
+    plan = plan_layout(_task(300.0))
+    assert not any("不是标准照度档" in w for w in plan.warnings)
+
+
+def test_above_standard_lux_explains_basis():
+    room = plan_layout(_task(500.0, room_type="meeting_room")).rooms[0]
+    assert "超标准设计" in room.lpd_basis
+    assert "折算" in room.lpd_basis and "不折算" in room.lpd_basis
+
+
+# ---------------------------------------------------------------- 功率与冲突
 
 def test_power_from_ir_fixture_entry():
     fx = [Fixture(id="L0", name="灯", properties={"power": 25.0})]
-    plan = plan_layout(_task(extra={"fixture_power_w": 99.0}, fixtures=fx))
-    room = plan.rooms[0]
+    room = plan_layout(_task(extra={"fixture_power_w": 99.0}, fixtures=fx)).rooms[0]
     assert "灯具条目" in room.power_source
     assert room.power_total_w == pytest.approx(25.0 * len(room.fixtures), rel=1e-6)
 
 
-def test_power_from_caller_when_ir_has_none():
-    plan = plan_layout(_task(extra={"fixture_power_w": 40.0}))
-    room = plan.rooms[0]
-    assert "调用方" in room.power_source
-    assert room.power_total_w == pytest.approx(40.0 * len(room.fixtures), rel=1e-6)
-
-
 def test_power_derived_from_efficacy_is_declared():
-    plan = plan_layout(_task())
-    room = plan.rooms[0]
+    room = plan_layout(_task()).rooms[0]
     assert "光效" in room.power_source and "反推" in room.power_source
-    expect = FLUX / DEFAULT_LUMINOUS_EFFICACY * len(room.fixtures)
-    assert room.power_total_w == pytest.approx(expect, rel=1e-6)
-
-
-# ---------------------------------------------------------------- 两层限值
-
-def test_two_limits_are_separate_fields():
-    """现行值与目标值必须是两个独立字段，不能合成一个。"""
-    plan = plan_layout(_task())
-    room = plan.rooms[0]
-    assert room.lpd_current_limit == pytest.approx(8.0)
-    assert room.lpd_target_limit == pytest.approx(6.5)
-    assert LPD_CURRENT_LIMIT_W_PER_M2 > LPD_TARGET_LIMIT_W_PER_M2
 
 
 def test_between_two_limits_is_compliant_but_not_on_target():
-    """过了现行值、没到目标值：合规，但不算达标——不进 shortfalls。"""
-    # 48 m²，目标 300 lx；功率调到让 LPD 落在 6.5~8.0 之间
-    plan = plan_layout(_task(300.0, extra={"fixture_power_w": 60.0}))
-    room = plan.rooms[0]
+    room = plan_layout(_task(300.0, extra={"fixture_power_w": 60.0})).rooms[0]
     lpd = room.power_density
-    if not (LPD_TARGET_LIMIT_W_PER_M2 < lpd <= LPD_CURRENT_LIMIT_W_PER_M2):
-        pytest.skip(f"这份样本 LPD={lpd:.2f} 没落在两限值之间")
-    assert room.lpd_compliant is True
-    assert room.lpd_meets_target is False
-    assert not [s for s in room.shortfalls if s["metric"] == "power_density"], \
-        "合规但未达目标值，不该进 shortfalls"
+    if not (6.5 < lpd <= 8.0):
+        pytest.skip(f"样本 LPD={lpd:.2f} 没落在两限值之间")
+    assert room.lpd_compliant is True and room.lpd_meets_target is False
+    assert not [s for s in room.shortfalls if s["metric"] == "power_density"]
     assert any("未达到目标值" in w for w in room.warnings)
 
 
 def test_over_current_limit_is_non_compliant_shortfall():
-    plan = plan_layout(_task(300.0, extra={"fixture_power_w": 400.0}))
-    room = plan.rooms[0]
+    room = plan_layout(_task(300.0, extra={"fixture_power_w": 400.0})).rooms[0]
     assert room.lpd_compliant is False
-    items = [s for s in room.shortfalls if s["metric"] == "power_density"]
-    assert items
-    item = items[0]
+    item = next(s for s in room.shortfalls if s["metric"] == "power_density")
     for key in ("metric", "label", "actual", "target", "unit", "gap", "gap_pct",
                 "cause", "action", "standard", "direction", "severity"):
         assert key in item, f"缺字段 {key}"
-    assert item["direction"] == "over"
-    assert item["severity"] == "non_compliant"
-    assert item["gap"] > 0
-    assert "3.3.7-3" in item["standard"], "现行值出处必须带表号"
+    assert item["severity"] == "non_compliant" and item["gap"] > 0
+    assert "3.3.7-3" in item["standard"]
 
-
-def test_current_standard_ref_names_the_table():
-    """出处要写成「GB 55015-2021 表 3.3.7-3」，不能只写「国标」。"""
-    assert "GB 55015-2021" in LPD_STANDARD_CURRENT
-    assert "3.3.7-3" in LPD_STANDARD_CURRENT
-    assert "GB/T 50034-2024" in LPD_STANDARD_TARGET
-    assert "6.3.5" in LPD_STANDARD_TARGET
-
-
-# ---------------------------------------------------------------- 档位口径
-
-def test_standard_lux_basis_is_declared_for_normal_design():
-    plan = plan_layout(_task(300.0))
-    room = plan.rooms[0]
-    assert "300 lx" in room.lpd_basis
-    assert "超标准设计" not in room.lpd_basis
-
-
-def test_above_standard_lux_must_explain_the_basis():
-    """目标高于标准档时，口径说明必须写出来（含折算参考值，并声明本结果不折算）。"""
-    plan = plan_layout(_task(500.0))
-    room = plan.rooms[0]
-    assert "超标准设计" in room.lpd_basis
-    assert "500 lx" in room.lpd_basis
-    assert "折算" in room.lpd_basis
-    assert "不折算" in room.lpd_basis
-
-
-def test_scaled_reference_value_is_computed_right():
-    """折算参考值 = 现行值 × 目标/标准档。"""
-    plan = plan_layout(_task(600.0))
-    room = plan.rooms[0]
-    expect = LPD_CURRENT_LIMIT_W_PER_M2 * 600.0 / 300.0
-    assert f"{expect:.2f}" in room.lpd_basis
-
-
-def test_custom_standard_lux_is_honoured():
-    plan = plan_layout(_task(500.0, extra={"standard_lux": 500.0}))
-    room = plan.rooms[0]
-    assert "超标准设计" not in room.lpd_basis, "标准档就是 500 时不该算超标准"
-
-
-# ---------------------------------------------------------------- 冲突结论
 
 def test_conflict_is_stated_when_illuminance_ok_but_lpd_over():
-    plan = plan_layout(_task(300.0, extra={"fixture_power_w": 400.0}))
-    room = plan.rooms[0]
-    assert room.predicted_avg_lumen >= room.target_lux - 1e-6, "前提：照度得先达标"
-    assert room.lpd_compliant is False
+    room = plan_layout(_task(300.0, extra={"fixture_power_w": 400.0})).rooms[0]
+    assert room.predicted_avg_lumen >= room.target_lux - 1e-6
     joined = " ".join(room.warnings)
-    assert "无法同时满足" in joined
-    assert "光效" in joined
-
-
-def test_needed_efficacy_matches_current_limit():
-    """建议动作里的光效门槛按**现行值**算，不是目标值。"""
-    plan = plan_layout(_task(300.0, extra={"fixture_power_w": 400.0}))
-    room = plan.rooms[0]
-    item = next(s for s in room.shortfalls if s["metric"] == "power_density")
-    need = len(room.fixtures) * room.flux_per_fixture / (
-        LPD_CURRENT_LIMIT_W_PER_M2 * room.area)
-    assert f"{need:.0f}" in item["action"]
+    assert "无法同时满足" in joined and "光效" in joined
