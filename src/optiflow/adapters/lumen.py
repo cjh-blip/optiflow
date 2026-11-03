@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from ..adapter import CapabilityDecl
-from ..algo.engine import ALGO_LIMITS, LayoutPlan, plan_layout
+from ..algo.engine import ALGO_LIMITS, LPD_STANDARD_REF, LayoutPlan, plan_layout
 from ..ir import TaskSpec
 from ..job import JobStatus, Progress, ResultSet
 
@@ -108,6 +108,12 @@ class LumenPlannerAdapter:
                     "lumen_method_count": r.lumen_method_count,
                     "supplement": r.supplement,
                     "shortfalls": r.shortfalls,
+                    "power_total_w": r.power_total_w,
+                    "power_density": r.power_density,
+                    "lpd_limit": r.lpd_limit,
+                    "lpd_ok": r.lpd_ok,
+                    "power_source": r.power_source,
+                    "lpd_standard": LPD_STANDARD_REF,
                     "edge_factor": r.edge_factor,
                     "room_index": r.room_index,
                     "utilization_factor": r.utilization_factor,

@@ -87,6 +87,9 @@ def probe(task: TaskSpec, target_lux: float, flux: float, verbose: bool = True) 
               f"直射={room.full_report.e_avg:.1f}  U0={room.uniformity.u0:.3f}  "
               f"目标={room.target_lux:.0f}  "
               f"达标={room.predicted_avg_lumen >= room.target_lux - 1e-6}")
+        lpd_txt = (f"{room.power_density:.2f} W/m² / 限值 {room.lpd_limit} W/m² "
+                   f"→ {'达标' if room.lpd_ok else '超标'}")
+        print(f"  LPD: {lpd_txt}  (总功率 {room.power_total_w} W；{room.power_source})")
         implied = room.predicted_avg_lumen * room.area / (
             max(n_actual, 1) * room.flux_per_fixture)
         print(f"  反推 CU×MF = E×A/(N×Φ) = "

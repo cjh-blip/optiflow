@@ -72,6 +72,23 @@ SUPPLEMENT_OVERSHOOT = 1.10
 #: 直射占比低于这个值时提醒方案过度依赖墙面反射
 MIN_DIRECT_FRACTION = 0.5
 
+#: LPD 限值（目标值）——**出处必须跟着走**，不许只写「国标要求」。
+#: GB/T 50034-2024《建筑照明设计标准》第 6.3.5 条 + 表 6.3.5：
+#: 办公建筑和其他类型建筑中具有办公用途场所，普通办公室、会议室 ≤ 6.5 W/m²。
+#: 同一条文另写「现行值应符合现行强制性工程建设规范 GB 55015 的规定」，
+#: 但工作区资料（`建筑照明设计标准_GBT50034-2024_知识库.md`）未收录
+#: GB 55015-2021 表 3.3.7 里办公建筑那行的具体数值，所以只取目标值并对标，
+#: 不把「现行值」写成自己没查到的数字。
+LPD_LIMIT_W_PER_M2 = 6.5
+LPD_STANDARD_REF = "GB/T 50034-2024 表 6.3.5（普通办公室、会议室，目标值）"
+LPD_CURRENT_VALUE_NOTE = (
+    "现行值（强制性规范 GB 55015-2021 表 3.3.7）本工作区资料未收录具体数值，"
+    "本结果只对标目标值")
+
+#: 灯具光效默认值（lm/W）。IR 里没功率时用它从光通量反推功率，
+#: 并且**必须把「按光效 X lm/W 假定」写进产出**，不许默默拿一个 30 W 顶上。
+DEFAULT_LUMINOUS_EFFICACY = 100.0
+
 #: 能力声明里要写的限制——算法层最容易被误当成仿真结果，所以写得直白些。
 ALGO_LIMITS = [
     "结果是【预测方案】不是仿真结论：用利用系数法 + 朗伯配光近似算出来的，未做光线追踪",
@@ -109,6 +126,13 @@ class RoomPlan:
     #: 不达标项的结构化输出。每项：metric / label / actual / target / unit /
     #: gap / gap_pct / cause / action——界面拿去直接显示，不用再解析 warning 文本。
     shortfalls: List[Dict[str, Any]] = field(default_factory=list)
+    #: 照明功率密度（W/m²）与限值。lpd_ok 为 None 表示没算出功率，不是达标。
+    power_total_w: Optional[float] = None
+    power_density: Optional[float] = None
+    lpd_limit: Optional[float] = None
+    lpd_ok: Optional[bool] = None
+    #: 功率是怎么来的：IR 里的 properties["power"] / 调用方给的 / 按光效假定。
+    power_source: str = ""
 
     @property
     def uniformity_ok(self) -> bool:
@@ -428,6 +452,28 @@ def plan_layout(task: TaskSpec, *,
                     f"墙面吸光或家具遮挡时实际会更暗，务必用 DIALux 校核"
                 )
 
+        # 照明功率密度（LPD）。功率从哪来必须说清楚：不能默默拿一个 30 W 顶上。
+        power_per_fixture: Optional[float] = None
+        power_source = ""
+        if task.fixtures:
+            given = [f.properties.get("power") for f in task.fixtures
+                     if f.properties.get("power")]
+            if given:
+                power_per_fixture = float(given[0])
+                power_source = "灯具条目 properties[\"power\"]"
+        if power_per_fixture is None and task.extra.get("fixture_power_w"):
+            power_per_fixture = float(task.extra["fixture_power_w"])
+            power_source = "调用方指定 fixture_power_w"
+        if power_per_fixture is None:
+            efficacy = float(task.extra.get("luminous_efficacy", DEFAULT_LUMINOUS_EFFICACY))
+            power_per_fixture = flux_per_fixture / efficacy
+            power_source = (
+                f"按光效 {efficacy:.0f} lm/W 从 {flux_per_fixture:.0f} lm 反推"
+                f"（IR 里没有功率字段）")
+        power_total = power_per_fixture * actual_count
+        power_density = power_total / area
+        lpd_ok = power_density <= LPD_LIMIT_W_PER_M2 + 1e-9
+
         # 不达标要给人话，不只给一句 warning：界面要能直接摆出
         # 「哪项、实测多少、目标多少、差多少、为什么、怎么办」。
         shortfalls: List[Dict[str, Any]] = []
@@ -464,6 +510,32 @@ def plan_layout(task: TaskSpec, *,
                     "这是灯具配光角度不够宽，不是灯不够多"),
                 "action": "换半峰角更大的灯具（更宽配光），或改用更密的小功率灯具分点布置",
             })
+        # LPD 超标：与上面同构，但方向相反（actual > target），所以多一个 direction 字段。
+        if not lpd_ok:
+            need_efficacy = actual_count * flux_per_fixture / (LPD_LIMIT_W_PER_M2 * area)
+            shortfalls.append({
+                "metric": "power_density", "label": "照明功率密度 LPD",
+                "actual": round(power_density, 2), "target": LPD_LIMIT_W_PER_M2,
+                "unit": "W/m2", "direction": "over",
+                "gap": round(power_density - LPD_LIMIT_W_PER_M2, 2),
+                "gap_pct": round((power_density - LPD_LIMIT_W_PER_M2)
+                                 / LPD_LIMIT_W_PER_M2 * 100.0, 1),
+                "cause": (
+                    f"{actual_count} 盏 × {power_per_fixture:.1f} W ÷ {area:.2f} m² "
+                    f"= {power_density:.2f} W/m²，超过 {LPD_STANDARD_REF} 的 "
+                    f"{LPD_LIMIT_W_PER_M2} W/m²；功率来源：{power_source}。"
+                    "补灯把照度补够了，但灯越多功率越大，照度与 LPD 在这里互相打架"),
+                "action": (
+                    f"换光效更高的灯具（同光通量下功率更小；要守住限值需光效 ≥ "
+                    f"{need_efficacy:.0f} lm/W），或减少盏数改用更大功率的灯具"),
+                "standard": LPD_STANDARD_REF,
+            })
+            if predicted_lumen >= target_lux - 1e-6:
+                room_warnings.append(
+                    f"照度达标（{predicted_lumen:.1f} lx ≥ {target_lux:.0f} lx）但 LPD "
+                    f"{power_density:.2f} W/m² 超过 {LPD_LIMIT_W_PER_M2} W/m²："
+                    f"现有灯具下这两个指标无法同时满足，需要换更高光效的灯具"
+                    f"（≥{need_efficacy:.0f} lm/W），不能靠调系数或减灯凑合")
 
         fixtures = [
             Fixture(
@@ -486,6 +558,10 @@ def plan_layout(task: TaskSpec, *,
             flux_per_fixture=flux_per_fixture, fixtures=fixtures,
             warnings=room_warnings, relayout=relayout, supplement=supplement,
             shortfalls=shortfalls,
+            power_total_w=round(power_total, 1),
+            power_density=round(power_density, 2),
+            lpd_limit=LPD_LIMIT_W_PER_M2, lpd_ok=lpd_ok,
+            power_source=power_source,
         ))
         all_warnings.extend(f"{space.id}: {w}" for w in room_warnings)
 
