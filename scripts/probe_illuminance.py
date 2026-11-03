@@ -96,9 +96,11 @@ def probe(task: TaskSpec, target_lux: float, flux: float, verbose: bool = True) 
                   f"{sup['rounds']} 轮，名义 {sup['nominal_count']} → {sup['nominal_after']} 盏，"
                   f"{'已补足' if sup['actual_after'] >= sup['nominal_count'] else '补不足'}")
         print(f"  照度: lumen={room.predicted_avg_lumen:.1f}  "
-              f"直射={room.full_report.e_avg:.1f}  U0={room.uniformity.u0:.3f}  "
+              f"直射={room.full_report.e_avg:.1f}  U0={room.uniformity.u0:.3f}"
+              f"（要求 {room.u0_required:.2f}，{'达标' if room.uniformity_ok else '未达标'}）  "
               f"目标={room.target_lux:.0f}  "
               f"达标={room.predicted_avg_lumen >= room.target_lux - 1e-6}")
+        print(f"       目标依据：{room.target_basis}；U0 依据：{room.u0_basis}")
         cur = room.lpd_current_limit
         tgt = room.lpd_target_limit
         verdict = ("不判（未指定类型或未收录）" if room.lpd_compliant is None
